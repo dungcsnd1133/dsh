@@ -4,20 +4,19 @@ Bộ cài lại đúng bản đang chạy trên máy Windows, cổng `3082`, mod
 
 Repo này không chứa mã nguồn DeepSeek, không chứa `node_modules`, không chứa khóa API, token Cloudflare, hay lịch sử chat. Mã DSH lấy từ repo chính thức khi cài.
 
-## Tạo API key xAI
+## Key xAI đã có
 
-1. Đăng nhập [console.x.ai](https://console.x.ai/).
-2. Mở [API Keys](https://console.x.ai/team/default/api-keys).
-3. Tạo một key mới. Copy ngay, trang chỉ hiện đầy đủ một lần.
-4. Trên máy Windows, tạo file một dòng, không xuống dòng thừa, không có dấu ngoặc:
+Không tạo key mới. Không in key ra chat.
+
+File đã nằm trên máy Windows, một dòng:
 
 ```text
 D:\dsh\home\xai.key
 ```
 
-Nội dung là key vừa copy. File này không được commit. `start.cmd` đọc file đó vào biến `XAI_API_KEY`.
+`D:\dsh\start.cmd` đọc file đó vào biến `XAI_API_KEY` trước khi chạy DSH. File yaml chỉ khai báo `apiKeyEnv: XAI_API_KEY` và model mặc định `grok-4.7`. Key không có trong Git.
 
-DSH lấy key qua `apiKeyEnv: XAI_API_KEY` trong [profile/cordis.patch.yml](profile/cordis.patch.yml). Không ghi key vào yaml.
+Phiên chat mới không có biến `XAI_API_KEY`. Biến đó chỉ được Grok gắn vào một số phiên cũ. Phiên mới SSH vào máy, thấy file trên là đủ, rồi dùng DSH đang chạy. Không xin key, không tạo key trên console nếu file còn.
 
 ## Cài
 
