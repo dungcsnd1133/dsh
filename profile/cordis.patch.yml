@@ -1,0 +1,41 @@
+# Feishu stays off. State stays on this machine. No API key belongs in this file.
+- id: webserver
+  config:
+    host: 127.0.0.1
+    port: 3082
+- id: web-runtime
+  config:
+    openBrowser: false
+    printUrl: true
+    publicUrl: https://agent.hoantienmuasam.net/
+    surfaceContext: true
+- id: connection
+  config:
+    trustedHosts:
+      - agent.hoantienmuasam.net
+- id: plugin-market
+  config:
+    indexes:
+      - https://cdn.jsdelivr.net/npm/dsh-plugin-catalog/index.json
+- id: dsh-superagent
+  config:
+    stateDir: /dsh/home/state/superagent
+- id: llm-pi-ai
+  config:
+    providers:
+      xai:
+        apiKeyEnv: XAI_API_KEY
+- id: ui-settings-general
+  name: "@deepseek-ai/dsh-client-ui-settings-general"
+  config:
+    welcomeNoticeVersion: 2026-09-28.1
+- id: agent-default-model
+  name: "@deepseek-ai/dsh-agent-default-model"
+  config:
+    provider: xai
+    model: grok-4.7
+- id: dsh-media
+  config:
+    publicOrigin: https://agent.hoantienmuasam.net
+    mediaDir: /dsh/home/state/superagent/media
+  disabled: false

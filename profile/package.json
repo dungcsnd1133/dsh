@@ -1,0 +1,32 @@
+{
+  "name": "dsh-profile-superagent",
+  "private": true,
+  "dependencies": {
+    "@bangbang-03/dsh-memory": "0.7.0",
+    "@local/dsh-media-play": "link:D:/dsh/plugins/dsh-media-play",
+    "@local/hide-session-memory-hud": "link:D:/dsh/plugins/hide-session-memory-hud",
+    "brooks-lint": "1.9.1",
+    "dsh-media": "link:D:/dsh/plugins/dsh-media",
+    "dsh-mobile": "0.8.1",
+    "dsh-superagent": "link:D:/dsh/src/dsh-superagent-prototype-main",
+    "dsh-web-artifact-designer": "1.0.0",
+    "dshmarket": "1.73.9"
+  },
+  "dsh": {
+    "profile": {
+      "bundles": [
+        "@deepseek-ai/dsh-base",
+        "@deepseek-ai/dsh-web-app",
+        "dsh-superagent",
+        "@bangbang-03/dsh-memory",
+        "brooks-lint",
+        "dsh-mobile",
+        "dsh-web-artifact-designer",
+        "dshmarket",
+        "dsh-media",
+        "@local/dsh-media-play",
+        "@local/hide-session-memory-hud"
+      ]
+    }
+  }
+}
