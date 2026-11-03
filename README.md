@@ -45,6 +45,7 @@ Lấy plugin và profile từ repo này:
 ```powershell
 git clone https://github.com/dungcsnd1133/dsh.git D:\dsh\kit
 git clone https://github.com/dungcsnd1133/dsh-media.git D:\dsh\plugins\dsh-media
+git clone https://github.com/dungcsnd1133/dsh-video-watch.git D:\dsh\plugins\dsh-video-watch
 Copy-Item -Recurse D:\dsh\kit\plugins\* D:\dsh\plugins\
 $env:DSH_HOME = 'D:\dsh\home'
 D:\dsh\npm\dsh.cmd superagent --from-default-profile web --dump-config
@@ -68,6 +69,7 @@ Trang nghe ở `http://127.0.0.1:3082`. Bản public hiện tại là `https://a
 |---|---|
 | `dsh-superagent` | [deepseek-ai/dsh-superagent-prototype](https://github.com/deepseek-ai/dsh-superagent-prototype) |
 | `dsh-media` | [dungcsnd1133/dsh-media](https://github.com/dungcsnd1133/dsh-media) |
+| `dsh-video-watch` | [dungcsnd1133/dsh-video-watch](https://github.com/dungcsnd1133/dsh-video-watch). Cần `ffmpeg` và `yt-dlp`. |
 | `dsh-media-play`, `hide-session-memory-hud` | thư mục `plugins/` trong repo này |
 | `dsh-mobile`, `dshmarket`, `brooks-lint`, `@bangbang-03/dsh-memory`, `dsh-web-artifact-designer` | npm, đúng phiên bản trong `profile/package.json` |
 
