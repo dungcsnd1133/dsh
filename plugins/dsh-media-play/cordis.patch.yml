@@ -1,0 +1,5 @@
+- insert:
+    - id: dsh-media-play
+      name: '@local/dsh-media-play'
+      config:
+        mediaDir: /root/.dsh/state/superagent/media

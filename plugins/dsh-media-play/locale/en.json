@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Media player",
+    "description": "Serves saved video and audio with byte ranges so a browser can play them."
+  }
+}

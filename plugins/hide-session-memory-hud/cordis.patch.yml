@@ -1,0 +1,3 @@
+- insert:
+    - id: hide-session-memory-hud
+      name: '@local/hide-session-memory-hud'
