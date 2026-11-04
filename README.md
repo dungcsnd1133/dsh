@@ -1,5 +1,18 @@
 # DSH
 
+## Cập nhật ngân sách ngữ cảnh — 04/11/2026
+
+Đã bổ sung [plugin chọn ngân sách token](plugins/dsh-context-auto/README.md)
+phiên bản **1.1.2**, hiện chạy tại https://dsh.hoantienmuasam.net/.
+DeepSeek, GLM, GPT và Gemini dùng [giới hạn từng model](docs/model-capacities.md)
+khoảng 1M ngữ cảnh; đầu vào tùy chỉnh, đầu ra mặc định MAX.
+Có 13 kiểm thử, cấu hình metadata mẫu và ảnh kiểm chứng.
+
+Hướng dẫn Windows bên dưới được giữ cho bộ cài gốc. Plugin mới cần áp dụng bản
+vá DSH rc.5 theo README của nó trước khi bật trên máy khác.
+
+## Bộ cài Windows gốc
+
 Bộ cài lại đúng bản đang chạy trên máy Windows, cổng `3082`, model `grok-4.7`, plugin media nằm ở [dungcsnd1133/dsh-media](https://github.com/dungcsnd1133/dsh-media).
 
 Repo này không chứa mã nguồn DeepSeek, không chứa `node_modules`, không chứa khóa API, token Cloudflare, hay lịch sử chat. Mã DSH lấy từ repo chính thức khi cài.

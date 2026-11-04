@@ -1,0 +1,5 @@
+- insert:
+    - id: context-auto-threshold
+      name: '@local/dsh-context-auto'
+      config:
+        modelInputTokens: {}

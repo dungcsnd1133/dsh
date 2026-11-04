@@ -1,0 +1,40 @@
+{
+  "name": "@local/dsh-context-auto",
+  "version": "1.1.2",
+  "private": true,
+  "type": "module",
+  "description": "Adjustable input token budget and MAX output for the native DSH context popup",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "policy.js",
+    "cordis.patch.yml",
+    "patch-native.mjs",
+    "startup.sh"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-api-remotes"
+      ]
+    }
+  },
+  "scripts": {
+    "test": "node --no-warnings --experimental-loader ./test/resolve-runtime.mjs --test ./test/context-auto.test.mjs"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh": "0.2.1-rc.5"
+  }
+}

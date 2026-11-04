@@ -1,0 +1,52 @@
+{
+  "llmPiAiPatch": {
+    "providers": {
+      "tlpro": {
+        "models": [
+          {
+            "id": "gpt-6-astra",
+            "contextWindow": 1050000,
+            "maxTokens": 128000
+          },
+          {
+            "id": "gpt-6.1-sol",
+            "contextWindow": 1050000,
+            "maxTokens": 128000
+          },
+          {
+            "id": "gpt-6.1-terra",
+            "contextWindow": 1050000,
+            "maxTokens": 128000
+          },
+          {
+            "id": "deepseek-v4.1-flash",
+            "contextWindow": 1000000,
+            "maxTokens": 393216
+          },
+          {
+            "id": "glm-5.3",
+            "contextWindow": 1000000,
+            "maxTokens": 131072
+          },
+          {
+            "id": "glm-5.3-flash",
+            "contextWindow": 1000000,
+            "maxTokens": 131072
+          },
+          {
+            "id": "gemini-4-argon",
+            "contextWindow": 1048576,
+            "maxTokens": 65536
+          }
+        ]
+      }
+    }
+  },
+  "contextAutoThresholdPatch": {
+    "modelInputCaps": {
+      "[\"tlpro\",\"gpt-6-astra\"]": 922000,
+      "[\"tlpro\",\"gpt-6.1-sol\"]": 922000,
+      "[\"tlpro\",\"gpt-6.1-terra\"]": 922000
+    }
+  }
+}
