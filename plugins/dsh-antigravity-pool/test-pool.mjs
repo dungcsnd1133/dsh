@@ -530,5 +530,27 @@ await test('settings action route selects another account', async () => {
   assert.equal(body.pool.accounts.find((a) => a.email === 'second@example.com').isActive, true)
 })
 
+await test('handshake started in the Settings card is completed by the page callback', async () => {
+  // Flow that was broken: settings minted a state into its own Map while the
+  // callback route read a different one, so the card could never finish.
+  const route = fetchRoutes.get('/api/antigravity.authUrl')
+  const minted = await route.fetch(new Request('http://x/api/antigravity.authUrl', {
+    method: 'POST',
+    body: JSON.stringify({ origin: 'https://dsh.example' }),
+  }))
+  assert.equal(minted.status, 200)
+  const { state, redirectUri } = await minted.json()
+  assert.equal(redirectUri, 'https://dsh.example/antigravity/oauth/callback')
+
+  const before = calls.length
+  const res = fakeRes()
+  await handler(fakeReq('GET', `/antigravity/oauth/callback?code=4%2FXSURFACE&state=${encodeURIComponent(state)}`), res)
+  assert.match(String(res.body), /Đã kết nối tài khoản/, 'callback hoàn tất phiên do Settings tạo')
+  const tokenCalls = calls.slice(before).filter((c) => c.url.startsWith('https://oauth2.googleapis.com/token'))
+  assert.equal(tokenCalls.length, 1)
+  assert.ok(String(tokenCalls[0].init.body).includes(encodeURIComponent('https://dsh.example/antigravity/oauth/callback')),
+    'token exchange replays the same-origin redirect')
+})
+
 console.log(`\nAll ${passed} tests passed ✅`)
 fs.rmSync(tmp, { recursive: true, force: true })

@@ -19,6 +19,8 @@ import {
   buildAuthUrl,
   makePkcePair,
   exchangeCallback,
+  rememberHandshake,
+  takeHandshake,
   configureOAuthClientFile,
   oauthClientSource,
   saveOAuthClient,
@@ -36,17 +38,6 @@ export const inject = ['webServer']
 
 const PLUGIN_DIR = dirname(fileURLToPath(import.meta.url))
 const UI_FILE = join(PLUGIN_DIR, 'ui.html')
-
-// Pending webflow OAuth handshakes: state -> {codeVerifier, redirectUri, createdAt}
-const pendingAuth = new Map()
-const PENDING_TTL_MS = 5 * 60 * 1000
-
-function prunePendingAuth() {
-  const now = Date.now()
-  for (const [k, v] of pendingAuth) {
-    if (now - v.createdAt > PENDING_TTL_MS) pendingAuth.delete(k)
-  }
-}
 
 function randomStateToken() {
   return randomBytes(24).toString('base64url')
@@ -252,8 +243,7 @@ export function apply(ctx, config) {
           })
           // Remember PKCE verifier + redirect for the callback hop (5 min TTL).
           if (mode === 'webflow') {
-            pendingAuth.set(state, { codeVerifier: pkce.verifier, redirectUri, createdAt: Date.now() })
-            prunePendingAuth()
+            rememberHandshake(state, { codeVerifier: pkce.verifier, redirectUri })
           }
           json(res, 200, {
             authUrl,
@@ -270,7 +260,7 @@ export function apply(ctx, config) {
           const code = url.searchParams.get('code') || ''
           const state = url.searchParams.get('state') || ''
           const errParam = url.searchParams.get('error') || ''
-          const pending = pendingAuth.get(state)
+          const pending = takeHandshake(state)
           if (errParam) {
             res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
             res.end(resultPage(false, `Google từ chối: ${escapeHtml(errParam)}`))
@@ -281,7 +271,6 @@ export function apply(ctx, config) {
             res.end(resultPage(false, 'Phiên đăng nhập đã hết hạn (quá 5 phút) hoặc state không khớp. Bấm đăng nhập lại.'))
             return
           }
-          pendingAuth.delete(state)
           try {
             const account = await exchangeCallback({
               callbackUrlOrCode: code,

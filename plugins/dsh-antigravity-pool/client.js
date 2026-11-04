@@ -236,10 +236,15 @@ window.__ModuleLoader__.load({
       const mint = useCallback(async () => {
         setError('')
         try {
-          const answer = await call(API.authUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
+          const answer = await call(API.authUrl, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ origin: window.location.origin }),
+          })
           setAuthUrl(answer.authUrl)
           setOpened(true)
-          window.open(answer.authUrl, '_blank', 'noopener,noreferrer')
+          // Cùng tab: Google quay lại /antigravity/oauth/callback rồi tự về đây.
+          window.location.href = answer.authUrl
         } catch (failure) {
           setError(failure instanceof Error ? failure.message : String(failure))
         }
@@ -569,8 +574,17 @@ window.__ModuleLoader__.load({
     return {
       inject: ['slots'],
       apply(ctx) {
-        ctx.slots.inject('settings.models.footer', () =>
-          ctx.slots.register({ name: 'settings.models.footer', id: 'antigravity-pool', order: 40 }, AntigravityPool),
+        // ctx.effect() ties the registration to this plugin's scope so the slot
+        // is mounted when the plugin starts and released when it reloads.
+        ctx.effect(
+          () =>
+            ctx.slots.inject('settings.models.footer', () =>
+              ctx.slots.register(
+                { name: 'settings.models.footer', id: 'antigravity-pool', order: 40 },
+                AntigravityPool,
+              ),
+            ),
+          'antigravity-pool: settings models footer',
         )
       },
     }

@@ -14,6 +14,9 @@ import {
   ANTIGRAVITY_SCOPES,
   ANTIGRAVITY_TOKEN_URL,
   addOrUpdateAccount,
+  handshakeCount,
+  rememberHandshake,
+  takeHandshake,
   getFetch,
   getSanitizedPoolView,
   isConfigured,
@@ -174,7 +177,7 @@ async function applyAction(action, body) {
  * @param {import('@deepseek-ai/cordis').Context} ctx - plugin context.
  */
 export function registerSettingsRoutes(ctx) {
-  const pending = new Map()
+
   let latestVerifier
 
   ctx.effect(
@@ -210,7 +213,7 @@ export function registerSettingsRoutes(ctx) {
         path: AUTH_URL_PATH,
         methods: ['POST'],
         requestBody: 'buffered',
-        fetch: () => {
+        fetch: async request => {
           const { clientId } = readAntigravityEnv()
           if (!isConfigured()) {
             return Promise.resolve(
@@ -220,14 +223,22 @@ export function registerSettingsRoutes(ctx) {
               ),
             )
           }
+          const body = await readJson(request)
+          // Same-origin callback keeps the flow inside Settings: Google comes
+          // straight back here and no redirect URL has to be copied. The
+          // loopback URI stays available for Desktop-app OAuth clients.
+          const redirectUri =
+            typeof body.origin === 'string' && body.origin && body.mode !== 'paste'
+              ? `${String(body.origin).replace(/\/$/, '')}/antigravity/oauth/callback`
+              : ANTIGRAVITY_REDIRECT_URI
           const verifier = randomBytes(32).toString('base64url')
           const state = randomBytes(16).toString('hex')
-          pending.set(state, verifier)
+          rememberHandshake(state, { codeVerifier: verifier, redirectUri })
           latestVerifier = verifier
           const params = new URLSearchParams({
             client_id: clientId,
             response_type: 'code',
-            redirect_uri: ANTIGRAVITY_REDIRECT_URI,
+            redirect_uri: redirectUri,
             scope: ANTIGRAVITY_SCOPES.join(' '),
             code_challenge: createHash('sha256').update(verifier).digest('base64url'),
             code_challenge_method: 'S256',
@@ -236,7 +247,7 @@ export function registerSettingsRoutes(ctx) {
             prompt: 'consent',
           })
           return Promise.resolve(
-            Response.json({ authUrl: `${ANTIGRAVITY_AUTH_URL}?${params.toString()}`, state, redirectUri: ANTIGRAVITY_REDIRECT_URI }),
+            Response.json({ authUrl: `${ANTIGRAVITY_AUTH_URL}?${params.toString()}`, state, redirectUri }),
           )
         },
       }),
@@ -260,7 +271,9 @@ export function registerSettingsRoutes(ctx) {
             return Response.json({ error: 'Không tìm thấy mã code trong URL hoặc chuỗi bạn dán.' }, { status: 400 })
           }
           const stateKey = parsed.state ?? (typeof body.state === 'string' ? body.state : undefined)
-          const verifier = (stateKey ? pending.get(stateKey) : undefined) ?? latestVerifier
+          const session = takeHandshake(stateKey)
+          const verifier = session?.codeVerifier ?? latestVerifier
+          const exchangeRedirect = session?.redirectUri ?? ANTIGRAVITY_REDIRECT_URI
           if (!verifier) {
             return Response.json(
               { error: 'Phiên đăng nhập đã hết hạn. Bấm "Add account" để tạo phiên mới.' },
@@ -275,7 +288,7 @@ export function registerSettingsRoutes(ctx) {
               client_secret: clientSecret,
               code: parsed.code,
               grant_type: 'authorization_code',
-              redirect_uri: ANTIGRAVITY_REDIRECT_URI,
+              redirect_uri: exchangeRedirect,
               code_verifier: verifier,
             }),
           })
@@ -299,7 +312,7 @@ export function registerSettingsRoutes(ctx) {
             projectId: projectId || ANTIGRAVITY_DEFAULT_PROJECT_ID,
             ...(email ? { email } : {}),
           })
-          if (stateKey) pending.delete(stateKey)
+
           if (!account) return Response.json({ error: 'Không lưu được tài khoản.' }, { status: 500 })
           return Response.json({ ok: true, email: account.email, projectId: account.projectId, pool: getSanitizedPoolView() })
         },
@@ -322,7 +335,4 @@ export function registerSettingsRoutes(ctx) {
     'antigravity-pool: settings action route',
   )
 
-  ctx.effect(() => () => {
-    pending.clear()
-  }, 'antigravity-pool: clear pending PKCE')
 }

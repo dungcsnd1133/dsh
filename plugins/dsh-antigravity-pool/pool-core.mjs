@@ -127,6 +127,37 @@ export function makePkcePair() {
   return { verifier, challenge };
 }
 
+/**
+ * Pending OAuth handshakes shared by every surface (standalone page and the
+ * Settings card). A state token maps to the PKCE verifier plus the redirect URI
+ * that must be replayed on the token exchange. Keeping one registry here means
+ * a handshake started in Settings is completed by the /antigravity/oauth/callback
+ * route, and vice versa.
+ */
+const PENDING_TTL_MS = 10 * 60 * 1000;
+const pendingHandshakes = new Map();
+
+export function rememberHandshake(state, { codeVerifier, redirectUri }) {
+  const now = Date.now();
+  for (const [key, value] of pendingHandshakes) {
+    if (now - value.createdAt > PENDING_TTL_MS) pendingHandshakes.delete(key);
+  }
+  pendingHandshakes.set(state, { codeVerifier, redirectUri, createdAt: now });
+  return state;
+}
+
+export function takeHandshake(state) {
+  const found = state ? pendingHandshakes.get(state) : undefined;
+  if (!found) return undefined;
+  pendingHandshakes.delete(state);
+  if (Date.now() - found.createdAt > PENDING_TTL_MS) return undefined;
+  return found;
+}
+
+export function handshakeCount() {
+  return pendingHandshakes.size;
+}
+
 // Build the Google consent URL. redirectUri should be the OAuth client's
 // registered URI (typically http://localhost:51121/oauth-callback) — the
 // browser ends up there after consent and the user copies the full URL
