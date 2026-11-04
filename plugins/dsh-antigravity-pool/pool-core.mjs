@@ -336,6 +336,7 @@ export function loadPool() {
             totalRequests: Number(acc.totalRequests || 0),
             quotaHits: Number(acc.quotaHits || 0),
             lastError: acc.lastError || null,
+            lastQuota: acc.lastQuota && typeof acc.lastQuota === 'object' ? acc.lastQuota : null,
           })),
         };
       }
@@ -416,6 +417,18 @@ export function getSanitizedPoolView() {
     totalRequests: acc.totalRequests || 0,
     quotaHits: acc.quotaHits || 0,
     lastError: acc.lastError || null,
+    // Cached live quota from the last probe, so the list shows a percentage
+    // immediately and the Quota action only refreshes it.
+    lastQuota: acc.lastQuota && typeof acc.lastQuota === 'object'
+      ? {
+          percent: typeof acc.lastQuota.percent === 'number' ? acc.lastQuota.percent : null,
+          bottleneck: typeof acc.lastQuota.bottleneck === 'string' ? acc.lastQuota.bottleneck : null,
+          resetTime: typeof acc.lastQuota.resetTime === 'string' ? acc.lastQuota.resetTime : null,
+          checkedAt: Number(acc.lastQuota.checkedAt || 0),
+          ok: acc.lastQuota.ok !== false,
+          ...(typeof acc.lastQuota.message === 'string' ? { message: acc.lastQuota.message } : {}),
+        }
+      : null,
   }));
 
   return {
@@ -669,6 +682,89 @@ export function updatePoolConfig(partialConfig = {}) {
     retryOnQuota: pool.retryOnQuota,
     cooldownMinutes: pool.cooldownMinutes,
   };
+}
+
+/**
+ * Read the live quota picture for one account, or the whole pool.
+ *
+ * Cloud Code Assist answers `fetchAvailableModels` with a per-model
+ * `quotaInfo.remainingFraction` and `resetTime`. The scarce resource is the
+ * model the user actually chats with, so the headline number is the LOWEST
+ * fraction across the chat models: one exhausted model is what returns 429,
+ * not the average.
+ * @param {string} [idOrEmail] - account to probe; every account when omitted.
+ * @returns {Promise<Record<string, unknown>>} quota snapshot.
+ */
+export async function probeQuota(idOrEmail) {
+  const pool = loadPool();
+  const targets = idOrEmail
+    ? pool.accounts.filter((a) => a.id === idOrEmail || a.email === idOrEmail)
+    : pool.accounts.slice();
+  if (targets.length === 0) {
+    return { ok: false, checkedAt: Date.now(), accounts: [], message: 'Không tìm thấy tài khoản Antigravity.' };
+  }
+  const results = [];
+  for (const acc of targets) {
+    try {
+      await refreshAccountIfNeeded(acc);
+      const res = await getFetch()('https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:fetchAvailableModels', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${acc.access}`,
+          'Content-Type': 'application/json',
+          'User-Agent': 'antigravity/1.15.8 darwin/arm64',
+        },
+        body: JSON.stringify({ project: acc.projectId || ANTIGRAVITY_DEFAULT_PROJECT_ID }),
+      });
+      if (!res.ok) {
+        const detail = await res.text().catch(() => '');
+        acc.lastQuota = { percent: null, bottleneck: null, resetTime: null, checkedAt: Date.now(), ok: false, message: `HTTP ${res.status}` };
+        results.push({ id: acc.id, email: acc.email, ok: false, percent: null, message: `HTTP ${res.status}: ${detail.slice(0, 160)}` });
+        continue;
+      }
+      const data = await res.json();
+      const rows = [];
+      for (const [id, model] of Object.entries(data?.models ?? {})) {
+        const info = model?.quotaInfo;
+        if (info === null || typeof info !== 'object') continue;
+        const fraction = typeof info.remainingFraction === 'number' ? info.remainingFraction : null;
+        rows.push({
+          id,
+          name: typeof model?.displayName === 'string' && model.displayName.length > 0 ? model.displayName : id,
+          fraction,
+          percent: fraction === null ? null : Math.round(Math.max(0, Math.min(1, fraction)) * 100),
+          resetTime: typeof info.resetTime === 'string' ? info.resetTime : null,
+        });
+      }
+      // Prefer the chat models this DSH profile actually offers.
+      const tracked = rows.filter((row) => /^gemini-(4-argon|3\.8-flash|3-flash|3\.1-flash)/i.test(row.id));
+      const candidates = tracked.length > 0 ? tracked : rows.filter((row) => row.fraction !== null);
+      const scored = candidates.filter((row) => typeof row.fraction === 'number');
+      const worst = scored.length > 0 ? scored.reduce((low, row) => (row.fraction < low.fraction ? row : low)) : null;
+      const resetTime = scored.map((row) => row.resetTime).filter(Boolean).sort()[0] ?? null;
+      acc.lastQuota = {
+        percent: worst === null ? null : worst.percent,
+        bottleneck: worst === null ? null : worst.name,
+        resetTime,
+        checkedAt: Date.now(),
+        ok: true,
+      };
+      results.push({
+        id: acc.id,
+        email: acc.email,
+        ok: true,
+        percent: acc.lastQuota.percent,
+        bottleneck: acc.lastQuota.bottleneck,
+        resetTime,
+        models: rows.sort((a, b) => (a.percent ?? 101) - (b.percent ?? 101)),
+      });
+    } catch (err) {
+      acc.lastQuota = { percent: null, bottleneck: null, resetTime: null, checkedAt: Date.now(), ok: false, message: err instanceof Error ? err.message : String(err) };
+      results.push({ id: acc.id, email: acc.email, ok: false, percent: null, message: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  savePool(pool);
+  return { ok: true, checkedAt: Date.now(), accounts: results };
 }
 
 export async function testAccountQuota(idOrEmail) {

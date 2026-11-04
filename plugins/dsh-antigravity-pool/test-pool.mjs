@@ -27,7 +27,18 @@ function fakeFetch(url, init) {
     }), { status: 200 }))
   }
   if (url.includes('fetchAvailableModels')) {
-    return Promise.resolve(new Response(quotaProbeStatus === 200 ? '{"models":[]}' : '{"error":"RESOURCE_EXHAUSTED"}', { status: quotaProbeStatus }))
+    if (quotaProbeStatus !== 200) {
+      return Promise.resolve(new Response('{"error":"RESOURCE_EXHAUSTED"}', { status: quotaProbeStatus }))
+    }
+    // Shaped like the real response: the headline comes from the lowest fraction.
+    return Promise.resolve(new Response(JSON.stringify({
+      models: {
+        'gemini-3-flash': { displayName: 'Gemini 3 Flash', quotaInfo: { remainingFraction: 0.42, resetTime: '2026-11-04T14:34:22Z' } },
+        'gemini-4-argon': { displayName: 'Gemini 4 Argon', quotaInfo: { remainingFraction: 0.91, resetTime: '2026-11-04T15:00:00Z' } },
+        'gemini-3.8-flash': { displayName: 'Gemini 3.8 Flash', quotaInfo: { remainingFraction: 0.88, resetTime: '2026-11-04T15:10:00Z' } },
+        'some-unrelated-model': { displayName: 'Unrelated', quotaInfo: { remainingFraction: 0.05 } },
+      },
+    }), { status: 200 }))
   }
   throw new Error('unexpected fetch: ' + url)
 }
@@ -554,6 +565,56 @@ await test('handshake started in the Settings card is completed by the page call
   assert.equal(tokenCalls.length, 1)
   assert.ok(String(tokenCalls[0].init.body).includes(encodeURIComponent('https://dsh.example/antigravity/oauth/callback')),
     'token exchange replays the same-origin redirect')
+})
+
+// ---------- live quota ----------
+await test('probeQuota reports the lowest chat-model fraction as the headline', async () => {
+  const result = await core.probeQuota()
+  assert.equal(result.ok, true)
+  const row = result.accounts.find((a) => a.email)
+  assert.ok(row, 'an account row is returned')
+  // 0.42 is the lowest Gemini chat model; the unrelated 0.05 is ignored.
+  assert.equal(row.percent, 42)
+  assert.equal(row.bottleneck, 'Gemini 3 Flash')
+  assert.equal(row.resetTime, '2026-11-04T14:34:22Z')
+})
+
+await test('probeQuota caches the number in the pool view', async () => {
+  const view = core.getSanitizedPoolView()
+  const withQuota = view.accounts.filter((a) => a.lastQuota)
+  assert.ok(withQuota.length > 0, 'at least one account carries a cache')
+  assert.equal(typeof withQuota[0].lastQuota.checkedAt, 'number')
+  assert.ok(['number', 'object'].includes(typeof withQuota[0].lastQuota.percent))
+})
+
+await test('probeQuota reports a probe failure without throwing', async () => {
+  quotaProbeStatus = 429
+  try {
+    const result = await core.probeQuota()
+    const row = result.accounts[0]
+    assert.equal(row.ok, false)
+    assert.equal(row.percent, null)
+    assert.ok(row.message.includes('429'))
+  } finally {
+    quotaProbeStatus = 200
+  }
+})
+
+await test('settings quota route answers a snapshot and never leaks tokens', async () => {
+  if (!fetchRoutes.has('/api/antigravity.quota')) {
+    // route registered only by the settings half; mount it if the earlier
+    // suite did not (keeps this test independent of ordering)
+    settingsMod.registerSettingsRoutes(settingsCtx)
+  }
+  const route = fetchRoutes.get('/api/antigravity.quota')
+  const response = await route.fetch(new Request('http://x/api/antigravity.quota', { method: 'POST', body: '{}' }))
+  assert.equal(response.status, 200)
+  const body = await response.json()
+  assert.equal(body.ok, true)
+  assert.ok(Array.isArray(body.accounts))
+  const serialized = JSON.stringify(body)
+  assert.equal(serialized.includes('"access"'), false)
+  assert.equal(serialized.includes('"refresh"'), false)
 })
 
 console.log(`\nAll ${passed} tests passed ✅`)

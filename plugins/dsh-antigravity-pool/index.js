@@ -14,6 +14,7 @@ import {
   resetAccountQuota,
   updatePoolConfig,
   testAccountQuota,
+  probeQuota,
   readAntigravityEnv,
   isConfigured,
   buildAuthUrl,
@@ -209,6 +210,14 @@ export function apply(ctx, config) {
         if (pathName === '/antigravity/api/test' && req.method === 'POST') {
           const body = await readBody(req)
           const result = await testAccountQuota(body.id ? String(body.id) : undefined)
+          json(res, 200, result)
+          return
+        }
+
+        if (pathName === '/antigravity/api/quota') {
+          const body = req.method === 'POST' ? await readBody(req) : {}
+          const target = body.id ? String(body.id) : (url.searchParams.get('id') || undefined)
+          const result = await probeQuota(target)
           json(res, 200, result)
           return
         }

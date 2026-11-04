@@ -79,6 +79,20 @@
   .tag.cooldown{background:var(--warnbg);color:var(--warn)}
   .tag.error{background:var(--errbg);color:var(--err)}
   .ameta{font-size:10.5px;color:var(--tx2);font-family:var(--mono);margin-top:3px;display:flex;gap:9px;flex-wrap:wrap}
+  /* ===== quota meter ===== */
+  .qbar{position:relative;height:6px;border-radius:99px;background:var(--panel2);overflow:hidden;margin-top:7px;min-width:0}
+  .qfill{position:absolute;left:0;top:0;bottom:0;border-radius:99px;transition:width .25s ease}
+  .qfill.high{background:var(--ok)}
+  .qfill.mid{background:var(--warn)}
+  .qfill.low{background:var(--err)}
+  .qfill.unknown{width:100% !important;background:var(--line2);opacity:.5}
+  .qwrap{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap;margin-top:6px;font-size:11px;font-family:var(--mono)}
+  .qpct{font-weight:700;font-size:14px;letter-spacing:-.3px}
+  .qpct.high{color:var(--ok)}
+  .qpct.mid{color:var(--warn)}
+  .qpct.low{color:var(--err)}
+  .qpct.unknown{color:var(--tx3);font-weight:500;font-size:11px}
+  .qlbl{color:var(--tx3)}
   /* Nút xếp dọc dưới thông tin trên mobile, ngang trên desktop */
   .abtns{display:flex;gap:6px;flex:none;flex-wrap:wrap}
   .btn{background:var(--panel2);border:1px solid var(--line2);color:var(--tx2);border-radius:7px;padding:0 11px;height:34px;font-size:11.5px;cursor:pointer;font-family:var(--sans);transition:all .12s;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap}
@@ -93,6 +107,8 @@
     .abtns .btn{flex:1;height:44px;font-size:13px;min-width:0;padding:0 6px}
     .aemail{font-size:13.5px}
     .ameta{font-size:11px}
+    .qpct{font-size:15px}
+    .qbar{height:7px}
   }
   .empty{padding:34px 20px;text-align:center;color:var(--tx2);font-size:13px}
   .empty svg{width:38px;height:38px;margin-bottom:10px;opacity:.4}
@@ -320,6 +336,30 @@ async function api(path,opts){
   return data
 }
 
+/**
+ * Render one account's quota meter.
+ * @param {object|null} q - cached quota (percent, bottleneck, resetTime, message).
+ * @returns {string} meter markup.
+ */
+function quotaMeter(q){
+  if(!q) return '<div class="qwrap"><span class="qpct unknown">chưa đo quota</span></div>'
+  const pct = typeof q.percent === 'number' ? q.percent : null
+  if(pct === null){
+    const msg = q.message ? esc(String(q.message).slice(0, 70)) : 'chưa đo được'
+    return `<div class="qwrap"><span class="qpct unknown">${msg}</span></div>`
+  }
+  const kind = pct >= 60 ? 'high' : pct >= 25 ? 'mid' : 'low'
+  const reset = q.resetTime ? new Date(q.resetTime) : null
+  const resetTxt = reset && !isNaN(reset.getTime())
+    ? `<span class="qlbl">reset ${reset.toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'})}</span>` : ''
+  const neck = q.bottleneck ? `<span class="qlbl">${esc(q.bottleneck)}</span>` : ''
+  return `<div class="qwrap">
+      <span class="qpct ${kind}">${pct}%</span><span class="qlbl">còn lại</span>
+      ${neck}${resetTxt}
+    </div>
+    <div class="qbar"><div class="qfill ${kind}" style="width:${Math.max(0,Math.min(100,pct))}%"></div></div>`
+}
+
 function envBanner(status,pool){
   const el=$('#env')
   const src=status.source||'none'
@@ -378,6 +418,7 @@ function renderPool(pool,status){
         <div class="av ${cls}">${esc(ini)}</div>
         <div class="ainfo">
           <div class="aemail">${esc(a.email)} ${a.isActive?'<span class="tag active">đang dùng</span>':`<span class="tag ${cls}">${a.status}</span>`}</div>
+          ${quotaMeter(a.lastQuota)}
           <div class="ameta">
             <span>proj: ${esc(a.projectId||'—')}</span>
             <span>hết hạn: ${expSoon?`<span style="color:var(--warn)">${exp}</span>`:exp}</span>
@@ -389,6 +430,7 @@ function renderPool(pool,status){
         </div>
         <div class="abtns">
           ${a.isActive?'':`<button class="btn pri" data-set="${esc(a.id)}">Chọn</button>`}
+          <button class="btn" data-quota="${esc(a.id)}">Đo quota</button>
           <button class="btn" data-test="${esc(a.id)}">Test</button>
           <button class="btn" data-reset="${esc(a.id)}">Reset</button>
           <button class="btn dng" data-del="${esc(a.id)}">Gỡ</button>
@@ -401,6 +443,16 @@ function renderPool(pool,status){
       try{const r=await api('/antigravity/api/test',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:b.dataset.test})})
         toast(r.ok?'✓ '+r.message:'✗ '+r.message,r.ok?'ok':'err')}catch(e){toast('✗ '+e.message,'err')}
       b.disabled=false;b.textContent='Test'
+    })
+    box.querySelectorAll('[data-quota]').forEach(b=>b.onclick=async()=>{
+      b.disabled=true;const old=b.textContent;b.textContent='đang đo…'
+      try{
+        const r=await api('/antigravity/api/quota',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:b.dataset.quota})})
+        const row=(r.accounts||[])[0]
+        toast(row&&row.ok?`✓ ${row.email}: ${row.percent}% còn lại`:'✗ không đo được',row&&row.ok?'ok':'err')
+        await refresh()
+      }catch(e){toast('✗ '+e.message,'err')}
+      b.disabled=false;b.textContent=old
     })
     box.querySelectorAll('[data-reset]').forEach(b=>b.onclick=()=>act('/antigravity/api/reset-quota',{id:b.dataset.reset},'Đã reset quota'))
     box.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{
@@ -429,6 +481,25 @@ async function act(path,body,msg){
   }catch(e){toast('✗ '+e.message,'err')}
 }
 
+let measuringQuota = false
+/**
+ * Measure live quota for accounts whose cached number is missing or stale.
+ * @param {object} pool - current pool snapshot.
+ */
+async function measureStale(pool){
+  if(measuringQuota) return
+  const accs = pool?.accounts || []
+  const stale = accs.some(a => !a.lastQuota || Date.now() - Number(a.lastQuota.checkedAt || 0) > 10*60*1000)
+  if(!stale) return
+  measuringQuota = true
+  try{
+    await api('/antigravity/api/quota',{method:'POST',headers:{'content-type':'application/json'},body:'{}'})
+    const [pool2,status2]=await Promise.all([api('/antigravity/api/pool'),api('/antigravity/api/status')])
+    renderPool(pool2,status2)
+  }catch{}
+  measuringQuota = false
+}
+
 async function refresh(){
   try{
     const [pool,status]=await Promise.all([
@@ -437,6 +508,7 @@ async function refresh(){
     ])
     oauthReady=Boolean(status.configured)
     renderPool(pool,status)
+    await measureStale(pool)
     $('#dot').className='dot'
     $('#tick').textContent=new Date().toLocaleTimeString('vi-VN')
   }catch(e){
