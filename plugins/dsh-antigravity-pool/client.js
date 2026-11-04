@@ -100,8 +100,8 @@ window.__ModuleLoader__.load({
     }
 
     const CSS = `
-.agp-root{display:flex;flex-direction:column;gap:12px;padding:14px 16px;border:.5px solid var(--dsw-alias-settings-card-stroke,rgba(0,0,0,.12));border-radius:12px;background:var(--dsw-alias-settings-card-fill,transparent);color:var(--dsw-alias-label-primary,inherit);font-size:13px;line-height:20px}
-.agp-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.agp-root{display:flex;flex-direction:column;gap:12px;min-width:0;max-width:100%;box-sizing:border-box;padding:14px 16px;border:.5px solid var(--dsw-alias-settings-card-stroke,rgba(0,0,0,.12));border-radius:12px;background:var(--dsw-alias-settings-card-fill,transparent);color:var(--dsw-alias-label-primary,inherit);font-size:13px;line-height:20px;overflow-wrap:anywhere}
+.agp-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;min-width:0}
 .agp-title{font-size:14px;font-weight:600}
 .agp-sub{color:var(--dsw-alias-label-tertiary,#8e8e93);font-size:12px;line-height:18px;margin-top:2px;max-width:64ch}
 .agp-btn{box-sizing:border-box;height:32px;padding:0 14px;border-radius:8px;border:.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.18));background:transparent;color:inherit;font:inherit;font-weight:500;cursor:pointer;white-space:nowrap}
@@ -112,10 +112,10 @@ window.__ModuleLoader__.load({
 .agp-btn-sm{height:28px;padding:0 10px;font-size:12px}
 .agp-btn-danger{color:#d92c20;border-color:rgba(217,44,32,.35)}
 .agp-list{display:flex;flex-direction:column;gap:8px}
-.agp-card{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border:.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.10));border-radius:10px}
+.agp-card{display:flex;flex-direction:column;gap:8px;min-width:0;padding:10px 12px;border:.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.10));border-radius:10px}
 .agp-card-active{border-color:rgba(22,163,74,.55);box-shadow:inset 0 0 0 .5px rgba(22,163,74,.35)}
-.agp-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.agp-email{font-weight:600;font-size:13px}
+.agp-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.agp-email{font-weight:600;font-size:13px;overflow-wrap:anywhere;min-width:0}
 .agp-badge{font-size:11px;padding:1px 7px;border-radius:999px;border:.5px solid currentColor;line-height:16px}
 .agp-badge-on{color:#16a34a}
 .agp-badge-off{color:#d97706}
@@ -138,6 +138,22 @@ window.__ModuleLoader__.load({
 .agp-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}
 .agp-spin{display:inline-block;width:12px;height:12px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;animation:agp-spin .7s linear infinite;vertical-align:-2px}
 @keyframes agp-spin{to{transform:rotate(360deg)}}
+/* The Settings panel keeps its fixed nav column on phones, leaving the content
+   column very narrow. Trim padding, stack the header, and let buttons wrap so
+   every control stays reachable instead of overflowing sideways. */
+@media (max-width:520px){
+  .agp-root{padding:10px 8px;gap:10px;border-left:0;border-right:0;border-radius:0}
+  .agp-head{flex-direction:column;align-items:stretch;gap:8px}
+  .agp-head .agp-row{gap:6px}
+  .agp-sub{max-width:none}
+  .agp-title{font-size:13px}
+  .agp-btn{height:30px;padding:0 10px;font-size:12px}
+  .agp-card{padding:8px}
+  .agp-meta{gap:6px;font-size:11px}
+  .agp-actions{gap:4px}
+  .agp-actions .agp-btn{flex:1 1 auto}
+  .agp-modal{padding:14px}
+}
 `
 
     /**
