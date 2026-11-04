@@ -240,11 +240,15 @@ await test('remove account works and activeIndex clamps', async () => {
   assert.equal(pool.totalAccounts, 1)
 })
 
-await test('UI page renders', async () => {
+await test('UI page renders from ui.html (control room)', async () => {
   const resPromise = fakeRes()
   await handler(fakeReq('GET', '/antigravity'), resPromise)
   assert.equal(resPromise.code, 200)
-  assert.match(String(resPromise.body), /Antigravity Account Pool/)
+  const html = String(resPromise.body)
+  assert.match(html, /Antigravity Pool/)
+  assert.match(html, /control room/)
+  assert.match(html, /\/antigravity\/api\/pool/, 'UI gọi API pool')
+  assert.match(html, /setInterval/, 'UI có auto-refresh')
 })
 
 await test('unknown api path returns 404 JSON', async () => {

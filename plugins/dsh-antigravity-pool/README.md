@@ -65,8 +65,18 @@ trên máy khác). Bản plugin tách hardcoded path ra `config`/env và thêm f
 
 ## Trang quản lý & API
 
-Mở **`/antigravity`** trong browser của DSH — xem số tài khoản, trạng thái
-active/cooldown, chọn tài khoản, test, reset quota, gỡ, đổi cooldown.
+Mở **`/antigravity`** trong browser của DSH — "control room" dark dashboard:
+
+- Dải 8 chỉ số realtime: tổng tài khoản, sẵn sàng, nghỉ quota, requests, con trỏ
+  active, quota hits, lỗi gần nhất, cooldown
+- Thẻ tài khoản với avatar trạng thái (xanh = active, hổ phách = cooldown, đỏ = lỗi),
+  hết hạn cảnh báo vàng khi còn < 10 phút, email + project + counter
+- Nút thao tác ngay trên thẻ: **Chọn / Test / Reset / Gỡ**; modal thêm tài khoản
+  (email, access, refresh, project, expires)
+- Nhật ký pool dạng stream (info/auth/quota/error), auto-refresh 5 giây
+- Banner cảnh báo khi thiếu `ANTIGRAVITY_CLIENT_ID`/`ANTIGRAVITY_CLIENT_SECRET`
+- Giao diện tự chứa 100% (`ui.html`) — không CDN, không font/icon ngoài;
+  sửa `ui.html` là có tác dụng ngay, không cần restart
 
 | Route | Mô tả |
 |---|---|
