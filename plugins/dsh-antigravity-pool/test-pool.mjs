@@ -58,7 +58,22 @@ fs.writeFileSync(credentialsFile, yaml.stringify({
 
 // ---------- load plugin with stub webServer ----------
 const routes = []
-const ctx = { webServer: { register: (r) => routes.push(r) } }
+// Minimal cordis-like ctx: webServer plus the connection.fetch registry the
+// Settings card routes ride, and effect() which runs the callback immediately.
+const connRoutes = new Map()
+const ctx = {
+  webServer: { register: (r) => routes.push(r) },
+  connection: {
+    fetch: {
+      register: (route) => {
+        connRoutes.set(route.path, route)
+        return () => {}
+      },
+    },
+  },
+  effect: (fn) => fn(),
+  get: (name) => (name === 'connection' ? ctx.connection : undefined),
+}
 const mod = await import(path.join(pluginDir, 'index.js'))
 mod.apply(ctx, { stateDir, credentialsFile })
 assert.equal(routes.length, 1, 'plugin registers exactly one prefix route')
@@ -442,20 +457,9 @@ await test('parseRedirect ignores empty input', () => {
   assert.deepEqual(settingsMod.parseRedirect('   '), {})
 })
 
-// Mount the settings routes against a stub connection.fetch registry.
-const fetchRoutes = new Map()
-const settingsCtx = {
-  effect: (fn) => fn(),
-  connection: {
-    fetch: {
-      register: (route) => {
-        fetchRoutes.set(route.path, route)
-        return () => {}
-      },
-    },
-  },
-}
-settingsMod.registerSettingsRoutes(settingsCtx)
+// apply() already mounted the Settings routes on ctx.connection.fetch above,
+// so reuse that registry instead of mounting a second isolated copy.
+const fetchRoutes = connRoutes
 
 await test('settings routes register all four endpoints', () => {
   assert.ok(fetchRoutes.has('/api/antigravity.pool'))

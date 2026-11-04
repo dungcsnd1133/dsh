@@ -1,6 +1,6 @@
 {
   "name": "@local/dsh-antigravity-pool",
-  "version": "2.7.0",
+  "version": "2.7.1",
   "private": true,
   "type": "module",
   "description": "Multi-account Antigravity OAuth pool: rotates Google accounts, cools down on quota, syncs the active grant.",
