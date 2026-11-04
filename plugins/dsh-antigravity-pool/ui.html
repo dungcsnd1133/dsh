@@ -17,6 +17,7 @@
     --sans:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',sans-serif;
   }
   *{box-sizing:border-box;margin:0;padding:0}
+  html{touch-action:manipulation;-webkit-text-size-adjust:100%}
   body{background:var(--bg);color:var(--tx);font-family:var(--sans);font-size:14px;line-height:1.5;min-height:100vh}
 
   /* ===== header ===== */
@@ -64,7 +65,7 @@
   .card .bd{padding:15px 17px}
 
   /* ===== accounts ===== */
-  .acct{display:flex;align-items:flex-start;gap:11px;padding:12px 14px;border-bottom:1px solid var(--line);transition:background .15s}
+  .acct{display:flex;align-items:flex-start;gap:11px;padding:12px 14px;border-bottom:1px solid var(--line);transition:background .15s;content-visibility:auto;contain-intrinsic-size:auto 132px}
   .acct:last-child{border-bottom:0}
   .acct:hover{background:var(--panel2)}
   .acct.me{background:var(--accbg);box-shadow:inset 3px 0 0 var(--acc)}
@@ -81,6 +82,18 @@
   .ameta{font-size:10.5px;color:var(--tx2);font-family:var(--mono);margin-top:3px;display:flex;gap:9px;flex-wrap:wrap}
   /* ===== quota meter ===== */
   .qbar{position:relative;height:6px;border-radius:99px;background:var(--panel2);overflow:hidden;margin-top:7px;min-width:0}
+  /* Bảng nhóm quota (Gemini/Claude × 5h/tuần) */
+  .qgroups{display:flex;flex-direction:column;gap:1px;margin-top:8px;padding-top:8px;border-top:1px dashed var(--line2)}
+  .qg{display:flex;align-items:center;gap:7px;font-size:10.5px;font-family:var(--mono);padding:2px 0}
+  .qg .qgn{color:var(--tx2);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .qg .qwin{font-size:9px;color:var(--tx2);background:var(--panel2);border:1px solid var(--line);border-radius:3px;padding:0 4px;flex:none}
+  .qg .qgb{width:44px;height:4px;border-radius:2px;background:var(--panel2);flex:none;overflow:hidden}
+  .qg .qgb>i{display:block;height:100%;border-radius:2px;background:var(--ok)}
+  .qg .qgb>i.mid{background:var(--warn)}
+  .qg .qgb>i.low{background:var(--err)}
+  .qg .qgp{width:32px;text-align:right;font-weight:600;flex:none;color:var(--ok)}
+  .qg .qgp.mid{color:var(--warn)}
+  .qg .qgp.low{color:var(--err)}
   .qfill{position:absolute;left:0;top:0;bottom:0;border-radius:99px;transition:width .25s ease}
   .qfill.high{background:var(--ok)}
   .qfill.mid{background:var(--warn)}
@@ -95,13 +108,33 @@
   .qlbl{color:var(--tx3)}
   /* Nút xếp dọc dưới thông tin trên mobile, ngang trên desktop */
   .abtns{display:flex;gap:6px;flex:none;flex-wrap:wrap}
-  .btn{background:var(--panel2);border:1px solid var(--line2);color:var(--tx2);border-radius:7px;padding:0 11px;height:34px;font-size:11.5px;cursor:pointer;font-family:var(--sans);transition:all .12s;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap}
+  /* iOS-style switch */
+  .sw{position:relative;display:inline-flex;align-items:center;flex:none;cursor:pointer;min-height:44px}
+  .sw input{position:absolute;opacity:0;width:1px;height:1px}
+  .sw i{width:46px;height:28px;border-radius:99px;background:var(--line2);position:relative;transition:background .18s}
+  .sw i::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.35);transition:transform .18s}
+  .sw input:checked+i{background:var(--acc)}
+  .sw input:checked+i::after{transform:translateX(18px)}
+  .sw input:focus-visible+i{outline:2px solid var(--acc);outline-offset:2px}
+  .acct.off{opacity:.55}
+  .acct.off .aemail{text-decoration:line-through}
+  /* model support chips */
+  .msup{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+  .mchp{font-size:10.5px;font-family:var(--mono);padding:2px 7px;border-radius:99px;border:1px solid var(--line);white-space:nowrap}
+  .mchp.full{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 45%,transparent)}
+  .mchp.fallback{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,transparent)}
+  .mchp.none{color:var(--tx3);text-decoration:line-through;opacity:.7}
+  .mchp.unknown{color:var(--tx3);border-style:dashed}
+  .btn{background:var(--panel2);border:1px solid var(--line2);color:var(--tx2);border-radius:8px;padding:0 13px;height:38px;min-height:38px;font-size:11.5px;cursor:pointer;font-family:var(--sans);transition:all .12s;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap}
   .btn:hover{color:var(--tx);border-color:var(--acc)}
   .btn.pri:hover{color:var(--ok);border-color:var(--ok)}
   .btn.dng:hover{color:var(--err);border-color:var(--err)}
   .btn:disabled{opacity:.4;cursor:default}
   /* Mobile: card dọc, nút full-width hàng dưới (touch ≥44px) */
   @media(max-width:640px){
+    .crow .btn{height:44px;min-height:44px}
+    .mclose{width:44px;height:44px}
+
     .acct{flex-wrap:wrap;padding:13px 14px}
     .abtns{width:100%;margin-top:9px;gap:7px}
     .abtns .btn{flex:1;height:44px;font-size:13px;min-width:0;padding:0 6px}
@@ -138,7 +171,9 @@
   }
 
   /* ===== modal ===== */
-  .mask{position:fixed;inset:0;background:rgba(5,8,14,.7);display:none;place-items:center;z-index:50;backdrop-filter:blur(3px)}
+  .mask{position:fixed;inset:0;background:rgba(5,8,14,.72);display:none;place-items:center;z-index:50;backdrop-filter:blur(3px)}
+  .mclose{margin-left:auto;background:none;border:1px solid var(--line2);border-radius:8px;color:var(--tx2);width:36px;height:36px;font-size:15px;cursor:pointer;flex:none}
+  .mclose:hover{color:var(--tx);border-color:var(--acc)}
   .mask.show{display:grid}
   .modal{background:var(--panel);border:1px solid var(--line2);border-radius:14px;width:min(520px,92vw);max-height:86vh;overflow:auto}
   .modal header{position:static;padding:15px 20px;border-bottom:1px solid var(--line)}
@@ -199,7 +234,7 @@
     h1{font-size:14px}
     .sub{font-size:10px}
     .logo{width:30px;height:30px}
-    .hbtn{padding:8px 12px;font-size:12px;height:38px}
+    .hbtn{padding:0 14px;font-size:12.5px;height:44px}
     .live{font-size:10px}
     main{padding:13px 13px calc(13px + env(safe-area-inset-bottom))}
     .card h2{padding:11px 14px;font-size:11px}
@@ -214,6 +249,7 @@
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
   .toast.err{border-color:var(--err);color:var(--err)}
   .toast.ok{border-color:var(--ok);color:var(--ok)}
+  @media (prefers-reduced-motion: reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
 </style>
 </head>
 <body>
@@ -255,6 +291,14 @@
         <h2>Cấu hình</h2>
         <div class="bd">
           <div class="crow">
+            <div><div class="ck">Xoay vòng tài khoản</div><div class="cd">chia request lần lượt cho các tài khoản đang bật</div></div>
+            <label class="sw"><input type="checkbox" id="cfgRot" aria-label="Xoay vòng tài khoản"><i></i></label>
+          </div>
+          <div class="crow">
+            <div><div class="ck">Tự chuyển khi lỗi</div><div class="cd">tài khoản lỗi / hết quota → thử ngay tài khoản kế tiếp</div></div>
+            <label class="sw"><input type="checkbox" id="cfgRetry" aria-label="Tự chuyển tài khoản khi lỗi"><i></i></label>
+          </div>
+          <div class="crow">
             <div><div class="ck">Cooldown khi chạm quota</div><div class="cd">phút nghỉ trước khi tự quay lại</div></div>
             <input type="number" id="cfgCd" inputmode="numeric" min="1" max="720" aria-label="Cooldown phút">
           </div>
@@ -275,8 +319,8 @@
 
 <!-- add account modal -->
 <div class="mask" id="mask">
-  <div class="modal">
-    <header><h3>Thêm / cập nhật tài khoản Antigravity</h3></header>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="mTitle">
+    <header><h3 id="mTitle">Thêm / cập nhật tài khoản Antigravity</h3><button class="mclose" id="mClose" aria-label="Đóng" type="button">✕</button></header>
     <div class="mbd">
       <!-- Chỉ dùng luồng auth: không nhập token tay -->
       <div id="tab-link" class="tabpane on">
@@ -318,7 +362,7 @@
     </div>
   </div>
 </div>
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script>
 const $=(s)=>document.querySelector(s)
@@ -357,7 +401,59 @@ function quotaMeter(q){
       <span class="qpct ${kind}">${pct}%</span><span class="qlbl">còn lại</span>
       ${neck}${resetTxt}
     </div>
-    <div class="qbar"><div class="qfill ${kind}" style="width:${Math.max(0,Math.min(100,pct))}%"></div></div>`
+    <div class="qbar"><div class="qfill ${kind}" style="width:${Math.max(0,Math.min(100,pct))}%"></div></div>
+    ${quotaGroups(q.groups)}`
+}
+
+/**
+ * Bảng nhóm quota đúng như app Antigravity: mỗi nhóm × cửa sổ (5h / tuần).
+ * Số nhóm khác nhau theo tài khoản — free tier chỉ có weekly, paid có thêm 5h
+ * và có tài khoản tách riêng nhóm "Gemini 4 Argon".
+ * @param {Array} groups - nhóm từ retrieveUserQuotaSummary.
+ * @returns {string} HTML hoặc chuỗi rỗng khi chưa có dữ liệu.
+ */
+/**
+ * Chip cho từng model trong picker: tài khoản này phục vụ được không, bằng gì.
+ * ✓ có model thật · ↘ chỉ có bản cũ thay thế · ✗ không có · ? chưa đo.
+ * @param {object} support - map từ server (supportFor cho mỗi model).
+ * @returns {string} HTML.
+ */
+function modelChips(support){
+  if(!support) return ''
+  const short={'gemini-4-argon':'Argon 4','gemini-3.8-flash':'Flash 3.8','claude-sonnet-5-5':'Sonnet 5.5','claude-opus-5-5':'Opus 5.5'}
+  const chips=Object.entries(support).map(([id,s])=>{
+    const name=short[id]||s.label||id
+    if(s.level==='full') return `<span class="mchp full" title="${esc(s.ids.join(', '))}">✓ ${esc(name)}</span>`
+    if(s.level==='fallback'){
+      const sub=(s.ids[0]||'').replace(/^claude-(sonnet|opus)-/,'').replace(/-thinking$/,'').replace(/^gemini-/,'').replace(/-/g,'.')
+      return `<span class="mchp fallback" title="Không có ${esc(name)}, dùng ${esc(s.ids.join(', '))}">↘ ${esc(name)} → ${esc(sub)}</span>`
+    }
+    if(s.level==='none') return `<span class="mchp none">✗ ${esc(name)}</span>`
+    return `<span class="mchp unknown" title="Chưa đo — bấm Đo quota">? ${esc(name)}</span>`
+  })
+  return `<div class="msup">${chips.join('')}</div>`
+}
+
+function quotaGroups(groups){
+  if(!Array.isArray(groups)||!groups.length) return ''
+  const rows=[]
+  for(const g of groups){
+    for(const b of (g.buckets||[])){
+      if(typeof b.percent!=='number') continue
+      const kind=b.percent>=60?'high':b.percent>=25?'mid':'low'
+      const w=(b.window||'').toLowerCase()
+      const win=w==='weekly'?'tuần':w==='5h'?'5h':esc(b.window||'')
+      const name=(g.name||'').replace('Gemini Models','Gemini').replace('Claude and GPT models','Claude/GPT')
+      rows.push(`<div class="qg">
+        <span class="qgn">${esc(name)}</span>
+        <span class="qwin">${win}</span>
+        <span class="qgb"><i class="${kind}" style="width:${Math.max(0,Math.min(100,b.percent))}%"></i></span>
+        <span class="qgp ${kind}">${b.percent}%</span>
+      </div>`)
+    }
+  }
+  if(!rows.length) return ''
+  return `<div class="qgroups">${rows.join('')}</div>`
 }
 
 function envBanner(status,pool){
@@ -414,10 +510,11 @@ function renderPool(pool,status){
       const cdLeft=a.cooldownRemainingSec>0?`<span>nghỉ ${Math.ceil(a.cooldownRemainingSec/60)}p</span>`:''
       const exp=a.expires?fmtD(a.expires):'—'
       const expSoon=a.expires&&a.expires-Date.now()<10*60*1000
-      return `<div class="acct ${a.isActive?'me':''}">
+      return `<div class="acct ${a.isActive?'me':''} ${a.enabled===false?'off':''}">
         <div class="av ${cls}">${esc(ini)}</div>
         <div class="ainfo">
           <div class="aemail">${esc(a.email)} ${a.isActive?'<span class="tag active">đang dùng</span>':`<span class="tag ${cls}">${a.status}</span>`}</div>
+          ${modelChips(a.support)}
           ${quotaMeter(a.lastQuota)}
           <div class="ameta">
             <span>proj: ${esc(a.projectId||'—')}</span>
@@ -429,6 +526,7 @@ function renderPool(pool,status){
           ${a.lastError?`<div class="ameta" style="color:var(--err)">! ${esc(String(a.lastError).slice(0,90))}</div>`:''}
         </div>
         <div class="abtns">
+          <label class="sw" title="Tham gia vòng xoay"><input type="checkbox" data-toggle="${esc(a.id)}" ${a.enabled===false?'':'checked'} aria-label="Bật/tắt ${esc(a.email)} trong vòng xoay"><i></i></label>
           ${a.isActive?'':`<button class="btn pri" data-set="${esc(a.id)}">Chọn</button>`}
           <button class="btn" data-quota="${esc(a.id)}">Đo quota</button>
           <button class="btn" data-test="${esc(a.id)}">Test</button>
@@ -437,6 +535,7 @@ function renderPool(pool,status){
         </div>
       </div>`
     }).join('')
+    box.querySelectorAll('[data-toggle]').forEach(c=>c.onchange=()=>act('/antigravity/api/account-toggle',{id:c.dataset.toggle,enabled:c.checked},c.checked?'Đã bật tài khoản':'Đã tắt tài khoản'))
     box.querySelectorAll('[data-set]').forEach(b=>b.onclick=()=>act('/antigravity/api/activate',{id:b.dataset.set},'Đã chọn tài khoản'))
     box.querySelectorAll('[data-test]').forEach(b=>b.onclick=async()=>{
       b.disabled=true;b.textContent='…'
@@ -472,6 +571,8 @@ function renderPool(pool,status){
 
   // cfg
   if(document.activeElement!==$('#cfgCd'))$('#cfgCd').value=pool.cooldownMinutes
+  $('#cfgRot').checked=pool.rotationEnabled!==false
+  $('#cfgRetry').checked=pool.retryOnQuota!==false
 }
 
 async function act(path,body,msg){
@@ -587,6 +688,14 @@ $('#mConnect').onclick=async()=>{
   }catch(e){toast('✗ '+e.message,'err')}
   b.disabled=false;b.textContent='Kết nối tài khoản'
 }
+
+$('#cfgRot').onchange=e=>act('/antigravity/api/config',{rotationEnabled:e.target.checked},e.target.checked?'Đã bật xoay vòng':'Đã tắt xoay vòng')
+$('#cfgRetry').onchange=e=>act('/antigravity/api/config',{retryOnQuota:e.target.checked},e.target.checked?'Đã bật tự chuyển khi lỗi':'Đã tắt tự chuyển khi lỗi')
+// Đóng modal: nút ✕, phím Esc, hoặc chạm nền (không chạm vào modal)
+$('#mClose').onclick=closeMask
+$('#mask').addEventListener('click',e=>{if(e.target===e.currentTarget)closeMask()})
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeMask()})
+function closeMask(){$('#mask').classList.remove('show')}
 
 $('#saveCfg').onclick=()=>act('/antigravity/api/config',{cooldownMinutes:Number($('#cfgCd').value)||30},'Đã lưu cấu hình')
 $('#testBtn').onclick=async()=>{

@@ -379,87 +379,132 @@ async function createAntigravityStream(model, normalizedContext, params, options
         ...(Object.keys(generationConfig).length > 0 ? { generationConfig } : {}),
         ...(currentTools.length > 0 ? { tools: convertTools(currentTools, false, false) } : {}),
     };
-    const candidates = getAntigravityCandidates(model.id);
-    const headers = {
-        Authorization: \`Bearer \${agAuth.token}\`,
-        "Content-Type": "application/json",
-        Accept: "text/event-stream",
-        "User-Agent": "antigravity/1.15.8 darwin/arm64",
-        "X-Goog-Api-Client": "google-cloud-sdk vscode_cloudshelleditor/0.1",
-        "Client-Metadata": JSON.stringify({
-            ideType: "IDE_UNSPECIFIED",
-            platform: "PLATFORM_UNSPECIFIED",
-            pluginType: "GEMINI",
-        }),
-    };
-    let lastErrorText = "";
-    let lastStatus = 0;
-    for (const [endpoint, candidateModel] of candidates) {
-        if (options?.signal?.aborted) {
-            throw new Error("Request was aborted");
-        }
-        const adjustedRequest = structuredClone(requestInner);
-        if (
-            candidateModel === "gemini-2.5-pro" ||
-            candidateModel === "gemini-2.5-flash"
-        ) {
-            if (adjustedRequest.generationConfig?.thinkingConfig?.thinkingLevel) {
-                delete adjustedRequest.generationConfig.thinkingConfig.thinkingLevel;
-                adjustedRequest.generationConfig.thinkingConfig.thinkingBudget = 2048;
-            }
-        }
-        const bodyObj = {
-            project: agAuth.projectId || "rising-fact-p41fc",
-            model: candidateModel,
-            request: adjustedRequest,
-            requestType: "agent",
-            userAgent: "antigravity",
-            requestId: \`agent-\${Date.now()}-\${Math.random().toString(36).slice(2, 11)}\`,
-        };
+    const ANTIGRAVITY_ENDPOINTS = [DAILY, DAILY_ALT, PROD];
+    const sseStream = (response) => (async function* () {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
         try {
-            const response = await fetch(\`\${endpoint}/v1internal:streamGenerateContent?alt=sse\`, {
-                method: "POST",
-                headers,
-                body: JSON.stringify(bodyObj),
-                signal: options?.signal,
-            });
-            if (response.ok && response.body) {
-                return (async function* () {
-                    const reader = response.body.getReader();
-                    const decoder = new TextDecoder();
-                    let buffer = "";
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split("\\n");
+                buffer = lines.pop() || "";
+                for (const line of lines) {
+                    if (!line.startsWith("data:")) continue;
+                    const jsonStr = line.slice(5).trim();
+                    if (!jsonStr) continue;
                     try {
-                        while (true) {
-                            const { done, value } = await reader.read();
-                            if (done) break;
-                            buffer += decoder.decode(value, { stream: true });
-                            const lines = buffer.split("\\n");
-                            buffer = lines.pop() || "";
-                            for (const line of lines) {
-                                if (!line.startsWith("data:")) continue;
-                                const jsonStr = line.slice(5).trim();
-                                if (!jsonStr) continue;
-                                try {
-                                    const parsed = JSON.parse(jsonStr);
-                                    const chunk = parsed.response || parsed;
-                                    if (chunk) yield chunk;
-                                } catch {
-                                    // ignore malformed SSE line
-                                }
-                            }
-                        }
-                    } finally {
-                        await reader.cancel().catch(() => {});
+                        const parsed = JSON.parse(jsonStr);
+                        const chunk = parsed.response || parsed;
+                        if (chunk) yield chunk;
+                    } catch {
+                        // ignore malformed SSE line
                     }
-                })();
+                }
             }
-            lastStatus = response.status;
-            lastErrorText = await response.text().catch(() => "");
-        } catch (err) {
-            lastErrorText = err instanceof Error ? err.message : String(err);
+        } finally {
+            await reader.cancel().catch(() => {});
         }
+    })();
+    // Try one account: each upstream id in order, each endpoint for transient
+    // failures. Returns the stream, or why this account could not serve it.
+    const attemptAccount = async (auth, upstreamIds) => {
+        const headers = {
+            Authorization: \`Bearer \${auth.token}\`,
+            "Content-Type": "application/json",
+            Accept: "text/event-stream",
+            "User-Agent": "antigravity/1.15.8 darwin/arm64",
+            "X-Goog-Api-Client": "google-cloud-sdk vscode_cloudshelleditor/0.1",
+            "Client-Metadata": JSON.stringify({
+                ideType: "IDE_UNSPECIFIED",
+                platform: "PLATFORM_UNSPECIFIED",
+                pluginType: "GEMINI",
+            }),
+        };
+        let status = 0;
+        let text = "";
+        for (const candidateModel of upstreamIds) {
+            for (const endpoint of ANTIGRAVITY_ENDPOINTS) {
+                if (options?.signal?.aborted) {
+                    throw new Error("Request was aborted");
+                }
+                const adjustedRequest = structuredClone(requestInner);
+                if (candidateModel === "gemini-2.5-pro" || candidateModel === "gemini-2.5-flash") {
+                    if (adjustedRequest.generationConfig?.thinkingConfig?.thinkingLevel) {
+                        delete adjustedRequest.generationConfig.thinkingConfig.thinkingLevel;
+                        adjustedRequest.generationConfig.thinkingConfig.thinkingBudget = 2048;
+                    }
+                }
+                const bodyObj = {
+                    project: auth.projectId || "rising-fact-p41fc",
+                    model: candidateModel,
+                    request: adjustedRequest,
+                    requestType: "agent",
+                    userAgent: "antigravity",
+                    requestId: \`agent-\${Date.now()}-\${Math.random().toString(36).slice(2, 11)}\`,
+                };
+                try {
+                    const response = await fetch(\`\${endpoint}/v1internal:streamGenerateContent?alt=sse\`, {
+                        method: "POST",
+                        headers,
+                        body: JSON.stringify(bodyObj),
+                        signal: options?.signal,
+                    });
+                    if (response.ok && response.body) {
+                        return { stream: sseStream(response), model: candidateModel };
+                    }
+                    status = response.status;
+                    text = await response.text().catch(() => "");
+                } catch (err) {
+                    if (options?.signal?.aborted) throw err;
+                    status = 0;
+                    text = err instanceof Error ? err.message : String(err);
+                    continue; // network failure: next endpoint
+                }
+                // Quota and auth are per account (the whole model group shares
+                // them), so other ids on this account would fail the same way.
+                if (status === 429 || status === 401 || status === 403) {
+                    return { status, text, accountFailure: true };
+                }
+                if (status >= 500) continue; // transient: next endpoint
+                break; // 400/404: this id is not served here, try the next id
+            }
+        }
+        // 400 after every id is a problem with the request itself; another
+        // account would reject it too, so do not burn through the pool.
+        return { status, text, accountFailure: status !== 400 };
+    };
+    const antigravityPool = globalThis.__dshAntigravityPool;
+    if (antigravityPool && typeof antigravityPool.acquire === "function") {
+        const tried = [];
+        let lastStatus = 0;
+        let lastErrorText = \`no enabled Antigravity account can serve \${model.id}\`;
+        for (let attempt = 0; attempt < 16; attempt++) {
+            const lease = await antigravityPool.acquire(model.id, { exclude: tried });
+            if (!lease) break;
+            tried.push(lease.id);
+            const ids = lease.upstream && lease.upstream.length
+                ? lease.upstream
+                : getAntigravityCandidates(model.id).map((pair) => pair[1]);
+            const result = await attemptAccount({ token: lease.token, projectId: lease.projectId }, [...new Set(ids)]);
+            if (result.stream) {
+                Promise.resolve(antigravityPool.report(lease.id, { ok: true })).catch(() => {});
+                return result.stream;
+            }
+            lastStatus = result.status;
+            lastErrorText = result.text;
+            if (!result.accountFailure) break;
+            await Promise.resolve(antigravityPool.report(lease.id, { ok: false, status: result.status, message: result.text })).catch(() => {});
+            if (!lease.retry) break;
+        }
+        throw new Error(\`Antigravity: no account could serve \${model.id} (tried \${tried.length}). Last error (\${lastStatus}): \${String(lastErrorText).slice(0, 500)}\`);
     }
-    throw new Error(\`Antigravity Cloud Code Assist error (\${lastStatus}): \${lastErrorText}\`);
+    // No pool plugin loaded: single credential, previous behaviour.
+    const single = await attemptAccount(agAuth, [...new Set(getAntigravityCandidates(model.id).map((pair) => pair[1]))]);
+    if (single.stream) return single.stream;
+    throw new Error(\`Antigravity Cloud Code Assist error (\${single.status}): \${single.text}\`);
 }
 `;
 

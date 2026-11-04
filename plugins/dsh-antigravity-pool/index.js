@@ -13,6 +13,9 @@ import {
   setActiveAccount,
   resetAccountQuota,
   updatePoolConfig,
+  acquireAccount,
+  reportAccountResult,
+  setAccountEnabled,
   testAccountQuota,
   probeQuota,
   readAntigravityEnv,
@@ -37,6 +40,21 @@ import {
   ANTIGRAVITY_DEFAULT_PROJECT_ID,
 } from './pool-core.mjs'
 import { registerSettingsRoutes } from './settings-routes.mjs'
+
+/**
+ * Whether the installed pi-ai Google adapter routes Antigravity requests
+ * through the pool hook (ops/antigravity-google-provider/patch-pi-ai.mjs).
+ * A DSH upgrade overwrites it, so the page shows this instead of assuming.
+ * @returns {boolean}
+ */
+function runtimeUsesPool() {
+  try {
+    const file = '/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@earendil-works/pi-ai/dist/api/google-generative-ai.js'
+    return existsSync(file) && readFileSync(file, 'utf8').includes('__dshAntigravityPool')
+  } catch {
+    return false
+  }
+}
 
 export const name = 'dsh-antigravity-pool'
 // 'connection' supplies the authenticated /api channel used by the Settings card.
@@ -162,6 +180,10 @@ export function apply(ctx, config) {
             redirectUri: ANTIGRAVITY_REDIRECT_URI,
             scopes: ANTIGRAVITY_SCOPES,
             defaultProjectId: ANTIGRAVITY_DEFAULT_PROJECT_ID,
+            // Is the rotation hook live in this process, and does the runtime
+            // patch know how to use it? Both must be true for rotation/retry.
+            rotationHook: typeof globalThis.__dshAntigravityPool?.acquire === 'function',
+            runtimePatched: runtimeUsesPool(),
           })
           return
         }
@@ -231,8 +253,18 @@ export function apply(ctx, config) {
           json(res, 200, updatePoolConfig({
             strategy: body.strategy,
             retryOnQuota: body.retryOnQuota,
+            rotationEnabled: body.rotationEnabled,
             cooldownMinutes: body.cooldownMinutes,
           }))
+          return
+        }
+
+        // Per-account rotation switch.
+        if (pathName === '/antigravity/api/account-toggle' && req.method === 'POST') {
+          const body = await readBody(req)
+          const acc = setAccountEnabled(String(body.id || ''), body.enabled !== false)
+          if (!acc) return json(res, 404, { error: 'account not found' })
+          json(res, 200, { ok: true, id: acc.id, enabled: acc.enabled, pool: getSanitizedPoolView() })
           return
         }
 
@@ -425,4 +457,18 @@ export function apply(ctx, config) {
 
   // Settings → Models card routes ride the authenticated /api channel.
   registerSettingsRoutes(ctx)
+
+  // Runtime hook. The patched pi-ai Antigravity stream runs in this same Node
+  // process and asks the pool which account serves each request, then reports
+  // the outcome so failed or exhausted accounts are routed around.
+  ctx.effect(() => {
+    globalThis.__dshAntigravityPool = {
+      version: 1,
+      acquire: (modelId, opts) => acquireAccount(modelId, opts),
+      report: (id, result) => reportAccountResult(id, result),
+    }
+    return () => {
+      delete globalThis.__dshAntigravityPool
+    }
+  }, 'antigravity-pool: runtime rotation hook')
 }

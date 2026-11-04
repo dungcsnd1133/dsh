@@ -308,6 +308,10 @@ function defaultPoolState() {
     version: 1,
     strategy: 'quota-failover',
     retryOnQuota: true,
+    // Spread requests across accounts in turn. Off = stay on the active
+    // account and only leave it when it cannot serve the model or fails.
+    rotationEnabled: true,
+    rotationCursor: -1,
     cooldownMinutes: 30,
     activeIndex: 0,
     accounts: [],
@@ -351,6 +355,12 @@ export function loadPool() {
             paidTier: typeof acc.paidTier === 'string' ? acc.paidTier : null,
             modelCount: typeof acc.modelCount === 'number' ? acc.modelCount : null,
             usableModelCount: typeof acc.usableModelCount === 'number' ? acc.usableModelCount : null,
+            // Upstream model ids this account may call (disabled ones removed).
+            models: Array.isArray(acc.models) ? acc.models.filter((id) => typeof id === 'string') : null,
+            disabledModels: Array.isArray(acc.disabledModels) ? acc.disabledModels.filter((id) => typeof id === 'string') : [],
+            // Per-account switch: false keeps the account out of rotation.
+            enabled: acc.enabled !== false,
+            failures: Number(acc.failures || 0),
           })),
         };
       }
@@ -440,18 +450,29 @@ export function getSanitizedPoolView() {
           resetTime: typeof acc.lastQuota.resetTime === 'string' ? acc.lastQuota.resetTime : null,
           checkedAt: Number(acc.lastQuota.checkedAt || 0),
           ok: acc.lastQuota.ok !== false,
+          // The grouped summary must survive a reload: the per-group 5h and
+          // weekly buckets exist only here.
+          groups: Array.isArray(acc.lastQuota.groups) ? acc.lastQuota.groups : [],
           ...(typeof acc.lastQuota.message === 'string' ? { message: acc.lastQuota.message } : {}),
         }
       : null,
+    enabled: acc.enabled !== false,
+    failures: acc.failures || 0,
+    tier: acc.tier || null,
+    paidTier: acc.paidTier || null,
+    // Which picker models this account can serve, and how.
+    support: modelSupportMap(acc),
   }));
 
   return {
     strategy: pool.strategy,
-    retryOnQuota: pool.retryOnQuota,
+    retryOnQuota: pool.retryOnQuota !== false,
+    rotationEnabled: pool.rotationEnabled !== false,
     cooldownMinutes: pool.cooldownMinutes,
     activeIndex: pool.activeIndex,
     totalAccounts: accounts.length,
-    totalHealthy: accounts.filter((a) => a.status === 'active').length,
+    totalHealthy: accounts.filter((a) => a.status === 'active' && a.enabled).length,
+    totalEnabled: accounts.filter((a) => a.enabled).length,
     accounts,
     logs: (pool.logs || []).slice(-30).reverse(),
   };
@@ -590,6 +611,196 @@ export function recordAccountSuccess(idOrEmail) {
   savePool(pool);
 }
 
+/**
+ * Models offered in the DSH picker, mapped to the upstream ids that serve them.
+ * `upstream` is the real model; `fallback` is an older model a lower tier gets
+ * instead (served, but not the model the user picked).
+ */
+export const ANTIGRAVITY_PUBLIC_MODELS = {
+  'gemini-4-argon': {
+    label: 'Gemini 4 Argon',
+    upstream: ['gemini-4-argon-high', 'gemini-4-argon-medium', 'gemini-4-argon-low'],
+    fallback: ['gemini-3.8-flash-tiered'],
+  },
+  'gemini-3.8-flash': {
+    label: 'Gemini 3.8 Flash',
+    upstream: ['gemini-3.8-flash-tiered', 'gemini-3.8-flash-high', 'gemini-3.8-flash-medium', 'gemini-3.8-flash-low'],
+    fallback: ['gemini-3-flash'],
+  },
+  'claude-sonnet-5-5': {
+    label: 'Claude Sonnet 5.5',
+    upstream: ['claude-sonnet-5-5-high', 'claude-sonnet-5-5-medium', 'claude-sonnet-5-5-low'],
+    fallback: ['claude-sonnet-4-6'],
+  },
+  'claude-opus-5-5': {
+    label: 'Claude Opus 5.5',
+    upstream: ['claude-opus-5-5-high', 'claude-opus-5-5-medium', 'claude-opus-5-5-low'],
+    fallback: ['claude-opus-4-6-thinking'],
+  },
+};
+
+/**
+ * How one account serves one picker model.
+ * @param {object} acc - pool account.
+ * @param {string} publicId - picker model id.
+ * @returns {{level: 'full'|'fallback'|'none'|'unknown', ids: string[]}}
+ *   `full` = has the real model, `fallback` = only an older substitute,
+ *   `none` = cannot serve it, `unknown` = never measured.
+ */
+export function supportFor(acc, publicId) {
+  const spec = ANTIGRAVITY_PUBLIC_MODELS[publicId];
+  if (!spec) return { level: 'unknown', ids: [publicId] };
+  if (!Array.isArray(acc?.models)) {
+    return { level: 'unknown', ids: [...spec.upstream, ...spec.fallback] };
+  }
+  const have = new Set(acc.models);
+  const primary = spec.upstream.filter((id) => have.has(id));
+  if (primary.length > 0) return { level: 'full', ids: primary };
+  const substitute = spec.fallback.filter((id) => have.has(id));
+  if (substitute.length > 0) return { level: 'fallback', ids: substitute };
+  return { level: 'none', ids: [] };
+}
+
+/**
+ * Support map for every picker model, for the UI.
+ * @param {object} acc - pool account.
+ * @returns {Record<string, {label: string, level: string, ids: string[]}>}
+ */
+export function modelSupportMap(acc) {
+  const out = {};
+  for (const [publicId, spec] of Object.entries(ANTIGRAVITY_PUBLIC_MODELS)) {
+    out[publicId] = { label: spec.label, ...supportFor(acc, publicId) };
+  }
+  return out;
+}
+
+const SUPPORT_RANK = { full: 0, unknown: 1, fallback: 2 };
+
+/**
+ * Pick the account that should serve the next request for a model.
+ *
+ * Only enabled accounts that are not cooling down and can serve the model are
+ * considered; accounts with the real model beat unmeasured ones, which beat
+ * accounts that only have an older substitute. With rotation on, requests go
+ * round-robin over that best group; with it off the active account is kept.
+ * @param {string} publicId - picker model id.
+ * @param {{exclude?: string[]}} [opts] - account ids already tried this request.
+ * @returns {Promise<null | {id: string, email: string, token: string, projectId: string,
+ *   upstream: string[], level: string, retry: boolean, rotation: boolean}>}
+ */
+export async function acquireAccount(publicId, { exclude = [] } = {}) {
+  const pool = loadPool();
+  const now = Date.now();
+  const skip = new Set(exclude);
+  const ranked = [];
+  pool.accounts.forEach((acc, index) => {
+    if (acc.enabled === false || skip.has(acc.id)) return;
+    if (acc.quotaExceededUntil && acc.quotaExceededUntil > now) return;
+    const support = supportFor(acc, publicId);
+    if (support.level === 'none') return;
+    ranked.push({ acc, index, support });
+  });
+  if (ranked.length === 0) return null;
+
+  const best = Math.min(...ranked.map((row) => SUPPORT_RANK[row.support.level]));
+  const group = ranked.filter((row) => SUPPORT_RANK[row.support.level] === best);
+  const rotation = pool.rotationEnabled !== false;
+  let pick;
+  if (rotation) {
+    const cursor = Number.isInteger(pool.rotationCursor) ? pool.rotationCursor : -1;
+    pick = group.find((row) => row.index > cursor) ?? group[0];
+    pool.rotationCursor = pick.index;
+  } else {
+    pick = group.find((row) => row.index === pool.activeIndex) ?? group[0];
+  }
+
+  try {
+    await refreshAccountIfNeeded(pick.acc);
+  } catch (err) {
+    pick.acc.lastError = err instanceof Error ? err.message : String(err);
+    savePool(pool);
+    // A dead refresh token is an account failure: let the caller move on.
+    return acquireAccount(publicId, { exclude: [...exclude, pick.acc.id] });
+  }
+  if (!rotation && pick.index !== pool.activeIndex) {
+    pool.logs = pool.logs || [];
+    pool.logs.push({
+      timestamp: now,
+      type: 'info',
+      message: `${pick.acc.email} phục vụ ${publicId} (tài khoản đang dùng không có model này hoặc đang lỗi)`,
+    });
+    pool.activeIndex = pick.index;
+  }
+  pick.acc.lastUsedAt = now;
+  savePool(pool);
+  return {
+    id: pick.acc.id,
+    email: pick.acc.email,
+    token: pick.acc.access,
+    projectId: pick.acc.projectId || ANTIGRAVITY_DEFAULT_PROJECT_ID,
+    upstream: pick.support.ids,
+    level: pick.support.level,
+    retry: pool.retryOnQuota !== false,
+    rotation,
+  };
+}
+
+/**
+ * Record how a request on an account ended, so rotation can route around it.
+ * Quota errors cool the account down for the configured period; auth errors
+ * for five minutes; other errors are only logged.
+ * @param {string} idOrEmail - account.
+ * @param {{ok: boolean, status?: number, message?: string}} result
+ */
+export async function reportAccountResult(idOrEmail, { ok, status = 0, message = '' } = {}) {
+  if (ok) {
+    recordAccountSuccess(idOrEmail);
+    return;
+  }
+  const text = String(message || '').slice(0, 300);
+  if (isQuotaExceededError(status, text)) {
+    await handleAccountQuotaExceeded(idOrEmail, text || `HTTP ${status}`);
+    return;
+  }
+  const pool = loadPool();
+  const acc = pool.accounts.find((a) => a.id === idOrEmail || a.email === idOrEmail);
+  if (!acc) return;
+  acc.failures = (acc.failures || 0) + 1;
+  acc.lastError = `HTTP ${status || '—'}: ${text}`.slice(0, 300);
+  if (status === 401 || status === 403) {
+    acc.status = 'cooldown';
+    acc.quotaExceededUntil = Date.now() + 5 * 60 * 1000;
+  }
+  pool.logs = pool.logs || [];
+  pool.logs.push({
+    timestamp: Date.now(),
+    type: 'error',
+    message: `${acc.email} lỗi (${status || 'mạng'}) — chuyển sang tài khoản khác`,
+  });
+  savePool(pool);
+}
+
+/**
+ * Turn one account in or out of rotation.
+ * @param {string} idOrEmail - account.
+ * @param {boolean} enabled - false keeps the account out of rotation.
+ * @returns {object|null} the account, or null when not found.
+ */
+export function setAccountEnabled(idOrEmail, enabled) {
+  const pool = loadPool();
+  const acc = pool.accounts.find((a) => a.id === idOrEmail || a.email === idOrEmail);
+  if (!acc) return null;
+  acc.enabled = enabled !== false;
+  pool.logs = pool.logs || [];
+  pool.logs.push({
+    timestamp: Date.now(),
+    type: 'info',
+    message: `${acc.email} ${acc.enabled ? 'tham gia' : 'rời'} vòng xoay`,
+  });
+  savePool(pool);
+  return acc;
+}
+
 export function addOrUpdateAccount(payload) {
   if (!payload || !payload.access || !payload.refresh) return null;
   const pool = loadPool();
@@ -687,13 +898,17 @@ export function updatePoolConfig(partialConfig = {}) {
   if (typeof partialConfig.retryOnQuota === 'boolean') {
     pool.retryOnQuota = partialConfig.retryOnQuota;
   }
+  if (typeof partialConfig.rotationEnabled === 'boolean') {
+    pool.rotationEnabled = partialConfig.rotationEnabled;
+  }
   if (typeof partialConfig.cooldownMinutes === 'number' && partialConfig.cooldownMinutes > 0) {
     pool.cooldownMinutes = partialConfig.cooldownMinutes;
   }
   savePool(pool);
   return {
     strategy: pool.strategy,
-    retryOnQuota: pool.retryOnQuota,
+    retryOnQuota: pool.retryOnQuota !== false,
+    rotationEnabled: pool.rotationEnabled !== false,
     cooldownMinutes: pool.cooldownMinutes,
   };
 }
@@ -934,6 +1149,8 @@ export async function probeQuota(idOrEmail) {
       if (catalogue.ok) {
         acc.modelCount = catalogue.models.length;
         acc.usableModelCount = catalogue.usable ?? catalogue.models.filter((m) => !m.disabled).length;
+        acc.models = catalogue.models.filter((m) => !m.disabled).map((m) => m.id);
+        acc.disabledModels = catalogue.models.filter((m) => m.disabled).map((m) => m.id);
       }
       acc.lastQuota = {
         percent: worst === null ? null : worst.percent,
@@ -962,8 +1179,42 @@ export async function probeQuota(idOrEmail) {
       results.push({ id: acc.id, email: acc.email, ok: false, percent: null, message: err instanceof Error ? err.message : String(err) });
     }
   }
+  // Measuring found the active account broken or empty: move to the healthiest
+  // enabled account instead of waiting for a live request to fail on it.
+  let switchedTo = null;
+  if (pool.retryOnQuota !== false && pool.accounts.length > 1) {
+    const active = pool.accounts[pool.activeIndex];
+    const activeRow = active ? results.find((row) => row.id === active.id) : null;
+    const broken = !active || active.enabled === false
+      || (activeRow && (activeRow.ok === false || activeRow.percent === 0));
+    if (broken) {
+      const now = Date.now();
+      let bestIdx = -1;
+      let bestPct = -1;
+      pool.accounts.forEach((acc, idx) => {
+        if (idx === pool.activeIndex || acc.enabled === false) return;
+        if (acc.quotaExceededUntil && acc.quotaExceededUntil > now) return;
+        const row = results.find((r) => r.id === acc.id);
+        if (row && row.ok === false) return;
+        const pct = typeof acc.lastQuota?.percent === 'number' ? acc.lastQuota.percent : -1;
+        if (pct > bestPct) { bestPct = pct; bestIdx = idx; }
+      });
+      if (bestIdx >= 0 && bestPct > 0) {
+        const from = active ? active.email : '—';
+        pool.activeIndex = bestIdx;
+        switchedTo = pool.accounts[bestIdx].email;
+        writeStoredCredentialsGrant(pool.accounts[bestIdx]);
+        pool.logs = pool.logs || [];
+        pool.logs.push({
+          timestamp: now,
+          type: 'info',
+          message: `Đo quota: ${from} lỗi/hết quota → chuyển sang ${switchedTo} (${bestPct}%)`,
+        });
+      }
+    }
+  }
   savePool(pool);
-  return { ok: true, checkedAt: Date.now(), accounts: results };
+  return { ok: true, checkedAt: Date.now(), accounts: results, switchedTo };
 }
 
 export async function testAccountQuota(idOrEmail) {

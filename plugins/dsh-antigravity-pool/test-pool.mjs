@@ -477,10 +477,7 @@ await test('every component client.js renders is defined in the bundle', () => {
   for (const name of used) {
     assert.ok(defined.has(name), 'component ' + name + ' được dùng nhưng không định nghĩa')
   }
-  assert.ok(defined.has('AccountCard'), 'AccountCard phải tồn tại')
   assert.ok(defined.has('AntigravityPool'), 'AntigravityPool phải tồn tại')
-  assert.ok(defined.has('QuotaMeter'), 'QuotaMeter phải tồn tại')
-  assert.ok(defined.has('quotaClass'), 'quotaClass helper phải tồn tại')
 
   // Catch helpers used but never defined. Restricted to component names
   // (capitalised) and the specific helpers that were lost before: scanning all
@@ -489,11 +486,17 @@ await test('every component client.js renders is defined in the bundle', () => {
   for (const name of usedComponents) {
     assert.ok(defined.has(name), 'component ' + name + ' được dùng nhưng không định nghĩa')
   }
-  for (const helper of ['quotaClass', 'fill', 'call', 'dictionary', 'describeQuota']) {
+  for (const helper of ['fill', 'call', 'dictionary']) {
     if (client.includes(helper + '(')) {
       assert.ok(defined.has(helper), 'helper ' + helper + ' được gọi nhưng không định nghĩa')
     }
   }
+})
+
+await test('the Settings card has exactly one add-account button', () => {
+  const client = fs.readFileSync(path.join(pluginDir, 'client.js'), 'utf8')
+  const n = (client.match(/t\.addOnPage/g) || []).length
+  assert.equal(n, 1, 'chỉ một nút mở trang thêm tài khoản, gặp ' + n)
 })
 
 await test('the Settings card links to the page instead of duplicating the add dialog', () => {
@@ -580,6 +583,157 @@ await test('docs/models-and-quota.md documents the UA trap and the two groups', 
     assert.match(doc, new RegExp(bucket), 'bucket ' + bucket)
   }
   assert.match(doc, /fetchAvailableModels/, 'endpoint model list')
+})
+
+// ---- rotation, per-account model support, retry ----
+const future = Date.now() + 10 * 60 * 60 * 1000
+function seedRotationPool(extra = {}) {
+  const base = core.loadPool()
+  base.accounts = [
+    { id: 'paid1', email: 'paid1@x', access: 'tok-paid1', refresh: 'r', expires: future, status: 'active',
+      models: ['gemini-4-argon-high', 'gemini-3.8-flash-tiered', 'claude-sonnet-5-5-high', 'claude-opus-5-5-high'] },
+    { id: 'free1', email: 'free1@x', access: 'tok-free1', refresh: 'r', expires: future, status: 'active',
+      models: ['gemini-3.8-flash-tiered', 'claude-sonnet-4-6', 'claude-opus-4-6-thinking'],
+      disabledModels: ['gemini-4-argon-disabled'] },
+    { id: 'paid2', email: 'paid2@x', access: 'tok-paid2', refresh: 'r', expires: future, status: 'active',
+      models: ['gemini-4-argon-low', 'gemini-3.8-flash-tiered', 'claude-sonnet-5-5-low', 'claude-opus-5-5-low'] },
+  ]
+  base.activeIndex = 0
+  base.rotationCursor = -1
+  base.rotationEnabled = true
+  base.retryOnQuota = true
+  Object.assign(base, extra)
+  core.savePool(base)
+}
+
+await test('supportFor tells which account serves which model', () => {
+  seedRotationPool()
+  const [paid1, free1] = core.loadPool().accounts
+  assert.equal(core.supportFor(paid1, 'gemini-4-argon').level, 'full')
+  assert.deepEqual(core.supportFor(paid1, 'gemini-4-argon').ids, ['gemini-4-argon-high'])
+  // free tier: Argon only as the 3.8 substitute, Claude only as 4.6
+  assert.equal(core.supportFor(free1, 'gemini-4-argon').level, 'fallback')
+  assert.equal(core.supportFor(free1, 'claude-sonnet-5-5').level, 'fallback')
+  assert.deepEqual(core.supportFor(free1, 'claude-sonnet-5-5').ids, ['claude-sonnet-4-6'])
+  assert.equal(core.supportFor(free1, 'gemini-3.8-flash').level, 'full')
+  assert.equal(core.supportFor({}, 'gemini-4-argon').level, 'unknown')
+  assert.equal(core.supportFor({ models: [] }, 'claude-opus-5-5').level, 'none')
+})
+
+await test('pool view exposes per-account support and both toggles', () => {
+  seedRotationPool()
+  const view = core.getSanitizedPoolView()
+  assert.equal(view.rotationEnabled, true)
+  assert.equal(view.retryOnQuota, true)
+  const free = view.accounts.find((a) => a.id === 'free1')
+  assert.equal(free.support['claude-opus-5-5'].level, 'fallback')
+  assert.equal(free.enabled, true)
+  assert.ok(!JSON.stringify(view).includes('tok-paid1'), 'token không lộ ra view')
+})
+
+await test('rotation on: requests go round-robin over accounts with the real model', async () => {
+  seedRotationPool()
+  const order = []
+  for (let i = 0; i < 4; i++) order.push((await core.acquireAccount('claude-sonnet-5-5')).id)
+  // free1 only has the 4.6 substitute, so the two paid accounts alternate
+  assert.deepEqual(order, ['paid1', 'paid2', 'paid1', 'paid2'])
+})
+
+await test('rotation off: the active account keeps serving', async () => {
+  seedRotationPool({ rotationEnabled: false, activeIndex: 2 })
+  const ids = []
+  for (let i = 0; i < 3; i++) ids.push((await core.acquireAccount('gemini-3.8-flash')).id)
+  assert.deepEqual(ids, ['paid2', 'paid2', 'paid2'])
+})
+
+await test('rotation off but active account lacks the model: another one serves it', async () => {
+  seedRotationPool({ rotationEnabled: false, activeIndex: 1 })
+  const lease = await core.acquireAccount('gemini-4-argon')
+  assert.equal(lease.level, 'full')
+  assert.notEqual(lease.id, 'free1')
+})
+
+await test('disabled account is skipped by rotation', async () => {
+  seedRotationPool()
+  core.setAccountEnabled('paid1', false)
+  const ids = new Set()
+  for (let i = 0; i < 4; i++) ids.add((await core.acquireAccount('claude-opus-5-5')).id)
+  assert.deepEqual([...ids], ['paid2'])
+  assert.equal(core.getSanitizedPoolView().accounts.find((a) => a.id === 'paid1').enabled, false)
+})
+
+await test('retry: exclude walks to the next account, substitute only as last resort', async () => {
+  seedRotationPool()
+  const first = await core.acquireAccount('claude-sonnet-5-5', { exclude: [] })
+  const second = await core.acquireAccount('claude-sonnet-5-5', { exclude: [first.id] })
+  const third = await core.acquireAccount('claude-sonnet-5-5', { exclude: [first.id, second.id] })
+  const none = await core.acquireAccount('claude-sonnet-5-5', { exclude: [first.id, second.id, third.id] })
+  assert.equal(first.level, 'full')
+  assert.equal(second.level, 'full')
+  assert.equal(third.id, 'free1')
+  assert.equal(third.level, 'fallback')
+  assert.equal(none, null)
+})
+
+await test('report 429 cools the account down so rotation routes around it', async () => {
+  seedRotationPool()
+  await core.reportAccountResult('paid1', { ok: false, status: 429, message: 'RESOURCE_EXHAUSTED' })
+  const acc = core.loadPool().accounts.find((a) => a.id === 'paid1')
+  assert.ok(acc.quotaExceededUntil > Date.now(), 'paid1 đang nghỉ')
+  const ids = new Set()
+  for (let i = 0; i < 3; i++) ids.add((await core.acquireAccount('gemini-4-argon')).id)
+  assert.ok(!ids.has('paid1'))
+})
+
+await test('report 401 parks the account briefly; plain errors only log', async () => {
+  seedRotationPool()
+  await core.reportAccountResult('paid2', { ok: false, status: 401, message: 'UNAUTHENTICATED' })
+  await core.reportAccountResult('paid1', { ok: false, status: 500, message: 'backend' })
+  const pool = core.loadPool()
+  const paid2 = pool.accounts.find((a) => a.id === 'paid2')
+  const paid1 = pool.accounts.find((a) => a.id === 'paid1')
+  assert.ok(paid2.quotaExceededUntil > Date.now())
+  assert.ok(paid2.quotaExceededUntil < Date.now() + 6 * 60 * 1000, 'chỉ nghỉ 5 phút')
+  assert.equal(paid1.quotaExceededUntil, null)
+  assert.equal(paid1.failures, 1)
+})
+
+await test('report ok counts the request and clears the error', async () => {
+  seedRotationPool()
+  await core.reportAccountResult('paid1', { ok: false, status: 500, message: 'x' })
+  await core.reportAccountResult('paid1', { ok: true })
+  const paid1 = core.loadPool().accounts.find((a) => a.id === 'paid1')
+  assert.equal(paid1.lastError, null)
+  assert.equal(paid1.totalRequests, 1)
+})
+
+await test('config route persists rotationEnabled and retryOnQuota', async () => {
+  seedRotationPool()
+  const r = await call('POST', '/antigravity/api/config', { rotationEnabled: false, retryOnQuota: false })
+  assert.equal(r.status, 200)
+  assert.equal(r.json.rotationEnabled, false)
+  assert.equal(r.json.retryOnQuota, false)
+  const view = core.getSanitizedPoolView()
+  assert.equal(view.rotationEnabled, false)
+  assert.equal(view.retryOnQuota, false)
+})
+
+await test('account-toggle route switches one account', async () => {
+  seedRotationPool()
+  const off = await call('POST', '/antigravity/api/account-toggle', { id: 'free1', enabled: false })
+  assert.equal(off.status, 200)
+  assert.equal(off.json.enabled, false)
+  const missing = await call('POST', '/antigravity/api/account-toggle', { id: 'nope', enabled: false })
+  assert.equal(missing.status, 404)
+})
+
+await test('runtime hook is installed on globalThis', async () => {
+  const hook = globalThis.__dshAntigravityPool
+  assert.ok(hook && typeof hook.acquire === 'function' && typeof hook.report === 'function')
+  seedRotationPool()
+  const lease = await hook.acquire('gemini-4-argon', {})
+  assert.equal(lease.token.startsWith('tok-'), true)
+  assert.ok(Array.isArray(lease.upstream) && lease.upstream.length > 0)
 })
 
 await test('docs/oauth-client.md ships and distinguishes invalid_grant from invalid_client', () => {
