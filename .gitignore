@@ -5,3 +5,5 @@ home/xai.key
 home/.credentials.yaml
 *.log
 .DS_Store
+.env
+plugins/*/.env

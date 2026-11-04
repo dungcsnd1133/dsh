@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Multi-account Antigravity OAuth pool manager for DSH Superagent",
+  "description": "Multi-account Antigravity OAuth pool manager for DSH Superagent. Reads ANTIGRAVITY_CLIENT_ID and ANTIGRAVITY_CLIENT_SECRET from environment variables; no credentials are stored in this repository.",
   "exports": {
     ".": "./index.js",
     "./package.json": "./package.json"
