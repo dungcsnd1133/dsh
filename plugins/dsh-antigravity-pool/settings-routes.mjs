@@ -17,6 +17,8 @@ import {
   handshakeCount,
   rememberHandshake,
   takeHandshake,
+  getActiveValidAccount,
+  fetchModelCatalogue,
   getFetch,
   getSanitizedPoolView,
   isConfigured,
@@ -33,6 +35,7 @@ export const POOL_PATH = '/api/antigravity.pool'
 export const AUTH_URL_PATH = '/api/antigravity.authUrl'
 export const EXCHANGE_PATH = '/api/antigravity.exchange'
 export const ACTION_PATH = '/api/antigravity.action'
+export const MODELS_PATH = '/api/antigravity.models'
 export const QUOTA_PATH = '/api/antigravity.quota'
 
 const JSON_HEADERS = { 'cache-control': 'no-store' }
@@ -360,5 +363,39 @@ export function registerSettingsRoutes(ctx) {
         },
       }),
     'antigravity-pool: settings quota route',
+  )
+
+  ctx.effect(
+    () =>
+      ctx.connection.fetch.register({
+        path: MODELS_PATH,
+        methods: ['GET', 'POST'],
+        requestBody: 'buffered',
+        fetch: async () => {
+          try {
+            const account = await getActiveValidAccount()
+            if (!account) {
+              return Response.json({ ok: false, error: 'pool empty', models: [] }, { status: 404 })
+            }
+            const catalogue = await fetchModelCatalogue(account.access, account.projectId)
+            return Response.json(
+              {
+                ok: catalogue.ok,
+                email: account.email,
+                count: catalogue.models.length,
+                models: catalogue.models,
+                ...(catalogue.reason ? { reason: catalogue.reason } : {}),
+              },
+              { status: catalogue.ok ? 200 : 502, headers: JSON_HEADERS },
+            )
+          } catch (failure) {
+            return Response.json(
+              { ok: false, error: failure instanceof Error ? failure.message : String(failure), models: [] },
+              { status: 503 },
+            )
+          }
+        },
+      }),
+    'antigravity-pool: settings models route',
   )
 }

@@ -26,6 +26,19 @@ function fakeFetch(url, init) {
       expires_in: 3600,
     }), { status: 200 }))
   }
+  if (url.includes('retrieveUserQuotaSummary')) {
+    return Promise.resolve(new Response(JSON.stringify({
+      groups: [
+        { displayName: 'Gemini Models', description: 'Gemini Flash, Gemini Pro', buckets: [
+          { bucketId: 'gemini-weekly', displayName: 'Weekly Limit Remaining', window: 'weekly', remainingFraction: 0.42, resetTime: '2026-11-11T12:00:00Z' },
+          { bucketId: 'gemini-5h', displayName: 'Five Hour Limit Remaining', window: '5h', remainingFraction: 0.9, resetTime: '2026-11-04T18:00:00Z' },
+        ] },
+        { displayName: 'Claude and GPT models', description: 'Claude, GPT-OSS', buckets: [
+          { bucketId: '3p-weekly', displayName: 'Weekly Limit Remaining', window: 'weekly', remainingFraction: 1 },
+        ] },
+      ],
+    }), { status: 200 }))
+  }
   if (url.includes('fetchAvailableModels')) {
     if (quotaProbeStatus !== 200) {
       return Promise.resolve(new Response('{"error":"RESOURCE_EXHAUSTED"}', { status: quotaProbeStatus }))
@@ -468,6 +481,76 @@ await test('the standalone page still owns the add-account flow', () => {
   assert.match(ui, /id="openAuth"/, 'trang có nút đăng nhập Google')
   assert.match(ui, /id="fCallback"/, 'trang có ô dán URL callback')
   assert.match(ui, /id="mConnect"/, 'trang có nút kết nối')
+})
+
+await test('quota summary route returns grouped buckets', async () => {
+  const r = await call('POST', '/antigravity/api/quota-summary', {})
+  assert.equal(r.status, 200, JSON.stringify(r.json))
+  assert.equal(r.json.ok, true)
+  const gemini = r.json.groups.find((g) => g.name === 'Gemini Models')
+  assert.ok(gemini, 'có nhóm Gemini')
+  const weekly = gemini.buckets.find((b) => b.id === 'gemini-weekly')
+  assert.equal(weekly.percent, 42)
+  assert.equal(weekly.window, 'weekly')
+  const fiveHour = gemini.buckets.find((b) => b.id === 'gemini-5h')
+  assert.equal(fiveHour.percent, 90)
+  assert.ok(r.json.groups.some((g) => g.name === 'Claude and GPT models'))
+})
+
+await test('probeQuota embeds the grouped summary', async () => {
+  const r = await call('POST', '/antigravity/api/quota', {})
+  assert.equal(r.status, 200)
+  const row = r.json.accounts[0]
+  assert.ok(Array.isArray(row.groups) && row.groups.length > 0, 'có groups trong kết quả probe')
+  assert.ok(row.groups[0].buckets.length > 0)
+})
+
+await test('models route lists models with capabilities', async () => {
+  const fakeModels = {
+    models: {
+      'claude-sonnet-4-6': { displayName: 'Claude Sonnet 4.6', supportsImages: true, supportsThinking: true, maxTokens: 250000, maxOutputTokens: 64000, modelProvider: 'MODEL_PROVIDER_ANTHROPIC' },
+      'gemini-3.8-flash-tiered': { displayName: 'Gemini 3.8 Flash', supportsImages: true, maxTokens: 1000000 },
+      'gemini-3.1-flash-image': { displayName: 'Gemini 3.1 Flash Image', supportsImages: true },
+    },
+    tieredModelIds: { flash: ['gemini-3.8-flash-tiered'] },
+  }
+  const original = fakeFetch
+  core.setFetchImpl((url, init) => (
+    url.includes('fetchAvailableModels')
+      ? Promise.resolve(new Response(JSON.stringify(fakeModels), { status: 200 }))
+      : original(url, init)
+  ))
+  try {
+    const r = await call('GET', '/antigravity/api/models')
+    assert.equal(r.status, 200, JSON.stringify(r.json))
+    assert.equal(r.json.count, 3)
+    const claude = r.json.models.find((m) => m.id === 'claude-sonnet-4-6')
+    assert.equal(claude.name, 'Claude Sonnet 4.6')
+    assert.equal(claude.images, true)
+    assert.equal(claude.thinking, true)
+    assert.equal(claude.maxOutputTokens, 64000)
+    const flash = r.json.models.find((m) => m.id === 'gemini-3.8-flash-tiered')
+    assert.equal(flash.tier, 'flash')
+  } finally {
+    core.setFetchImpl(original)
+  }
+})
+
+await test('settings models route is registered', () => {
+  assert.ok(connRoutes.has('/api/antigravity.models'), 'card có route models')
+})
+
+await test('docs/models-and-quota.md documents the UA trap and the two groups', () => {
+  const doc = fs.readFileSync(path.join(pluginDir, 'docs', 'models-and-quota.md'), 'utf8')
+  assert.match(doc, /retrieveUserQuotaSummary/, 'nêu endpoint đúng')
+  assert.match(doc, /antigravity\/hub\/2\.24\.0/, 'UA đúng')
+  assert.match(doc, /UA.*quyết định|gates/i, 'cảnh báo UA gating')
+  assert.match(doc, /Gemini Models/, 'nhóm Gemini')
+  assert.match(doc, /Claude and GPT/, 'nhóm Claude/GPT')
+  for (const bucket of ['gemini-weekly', 'gemini-5h', '3p-weekly', '3p-5h']) {
+    assert.match(doc, new RegExp(bucket), 'bucket ' + bucket)
+  }
+  assert.match(doc, /fetchAvailableModels/, 'endpoint model list')
 })
 
 await test('docs/oauth-client.md ships and distinguishes invalid_grant from invalid_client', () => {

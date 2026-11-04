@@ -120,6 +120,16 @@ export const ANTIGRAVITY_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/aut
 export const ANTIGRAVITY_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 export const ANTIGRAVITY_DEFAULT_PROJECT_ID = 'rising-fact-p41fc';
 
+// The daily endpoint gates the Gemini quota group on the client version: a
+// 1.x user agent only ever returns the "Claude and GPT" group. Antigravity IDE
+// 2.24+ gets both, so probe with the same shape it sends.
+export const ANTIGRAVITY_PROBE_USER_AGENT = 'antigravity/hub/2.24.0 darwin/arm64';
+export const ANTIGRAVITY_IDE_HEADERS = {
+  'X-Goog-Api-Client': 'google-cloud-sdk vscode_cloudshelleditor/0.1',
+  'Client-Metadata':
+    '{"ideType":"IDE_UNSPECIFIED","platform":"PLATFORM_UNSPECIFIED","pluginType":"GEMINI"}',
+};
+
 // RFC 7636 PKCE helpers — Google requires PKCE for installed-app flows.
 export function makePkcePair() {
   const verifier = randomBytes(48).toString('base64url');
@@ -695,6 +705,135 @@ export function updatePoolConfig(partialConfig = {}) {
  * @param {string} [idOrEmail] - account to probe; every account when omitted.
  * @returns {Promise<Record<string, unknown>>} quota snapshot.
  */
+/**
+ * Ask `retrieveUserQuotaSummary` for the grouped limits Antigravity shows in its
+ * own Models & Quota panel (one bucket per group and window, e.g. `gemini-weekly`,
+ * `3p-5h`). This is the shape the app renders, and weekly limits appear ONLY
+ * here — `fetchAvailableModels` cannot see them.
+ * @param {string} access - bearer token for the account.
+ * @param {string} project - Cloud Code Assist project id.
+ * @returns {Promise<{ok: boolean, groups: Array<Record<string, unknown>>, reason?: string}>}
+ */
+export async function fetchQuotaSummary(access, project) {
+  const bases = [
+    'https://daily-cloudcode-pa.googleapis.com',
+    'https://daily-cloudcode-pa.sandbox.googleapis.com',
+    'https://cloudcode-pa.googleapis.com',
+  ];
+  let lastReason = 'no endpoint answered';
+  for (const base of bases) {
+    try {
+      const res = await getFetch()(`${base}/v1internal:retrieveUserQuotaSummary`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${access}`,
+          'Content-Type': 'application/json',
+          'User-Agent': ANTIGRAVITY_PROBE_USER_AGENT,
+          ...ANTIGRAVITY_IDE_HEADERS,
+        },
+        body: JSON.stringify({ project: project || ANTIGRAVITY_DEFAULT_PROJECT_ID }),
+      });
+      if (!res.ok) {
+        lastReason = `HTTP ${res.status} from ${base}`;
+        continue;
+      }
+      const data = await res.json();
+      const groups = Array.isArray(data?.groups) ? data.groups : [];
+      // A 1.x-style response carries only the third-party group; treat an empty
+      // or single-group result as usable but not authoritative.
+      if (groups.length === 0) {
+        lastReason = 'empty groups';
+        continue;
+      }
+      return {
+        ok: true,
+        groups: groups.map((group) => ({
+          name: typeof group?.displayName === 'string' ? group.displayName : 'Quota',
+          description: typeof group?.description === 'string' ? group.description : '',
+          buckets: (Array.isArray(group?.buckets) ? group.buckets : []).map((bucket) => ({
+            id: typeof bucket?.bucketId === 'string' ? bucket.bucketId : '',
+            label: typeof bucket?.displayName === 'string' ? bucket.displayName : '',
+            window: typeof bucket?.window === 'string' ? bucket.window : '',
+            percent:
+              typeof bucket?.remainingFraction === 'number'
+                ? Math.round(Math.max(0, Math.min(1, bucket.remainingFraction)) * 100)
+                : null,
+            resetTime: typeof bucket?.resetTime === 'string' ? bucket.resetTime : null,
+          })),
+        })),
+      };
+    } catch (err) {
+      lastReason = err instanceof Error ? err.message : String(err);
+    }
+  }
+  return { ok: false, groups: [], reason: lastReason };
+}
+
+/**
+ * List the models an account can use, with the per-model capability flags the
+ * API exposes. Used by the quota panel and by the "which models" documentation.
+ * @param {string} access - bearer token.
+ * @param {string} project - project id.
+ * @returns {Promise<{ok: boolean, models: Array<Record<string, unknown>>, reason?: string}>}
+ */
+export async function fetchModelCatalogue(access, project) {
+  const bases = [
+    'https://daily-cloudcode-pa.sandbox.googleapis.com',
+    'https://daily-cloudcode-pa.googleapis.com',
+    'https://cloudcode-pa.googleapis.com',
+  ];
+  let lastReason = 'no endpoint answered';
+  for (const base of bases) {
+    try {
+      const res = await getFetch()(`${base}/v1internal:fetchAvailableModels`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${access}`,
+          'Content-Type': 'application/json',
+          'User-Agent': ANTIGRAVITY_PROBE_USER_AGENT,
+          ...ANTIGRAVITY_IDE_HEADERS,
+        },
+        body: JSON.stringify({ project: project || ANTIGRAVITY_DEFAULT_PROJECT_ID }),
+      });
+      if (!res.ok) {
+        lastReason = `HTTP ${res.status} from ${base}`;
+        continue;
+      }
+      const data = await res.json();
+      const raw = data?.models;
+      if (!raw || typeof raw !== 'object') {
+        lastReason = 'no models in response';
+        continue;
+      }
+      const tiered = data?.tieredModelIds && typeof data.tieredModelIds === 'object' ? data.tieredModelIds : {};
+      const tierOf = {};
+      for (const [tier, ids] of Object.entries(tiered)) {
+        if (Array.isArray(ids)) for (const id of ids) tierOf[id] = tier;
+      }
+      const models = Object.entries(raw).map(([id, model]) => ({
+        id,
+        name: typeof model?.displayName === 'string' && model.displayName ? model.displayName : id,
+        images: model?.supportsImages === true,
+        thinking: model?.supportsThinking === true,
+        maxTokens: typeof model?.maxTokens === 'number' ? model.maxTokens : null,
+        maxOutputTokens: typeof model?.maxOutputTokens === 'number' ? model.maxOutputTokens : null,
+        recommended: model?.recommended === true,
+        provider: typeof model?.modelProvider === 'string' ? model.modelProvider : '',
+        tier: tierOf[id] ?? null,
+        percent:
+          typeof model?.quotaInfo?.remainingFraction === 'number'
+            ? Math.round(Math.max(0, Math.min(1, model.quotaInfo.remainingFraction)) * 100)
+            : null,
+      }));
+      models.sort((a, b) => a.id.localeCompare(b.id));
+      return { ok: true, models };
+    } catch (err) {
+      lastReason = err instanceof Error ? err.message : String(err);
+    }
+  }
+  return { ok: false, models: [], reason: lastReason };
+}
+
 export async function probeQuota(idOrEmail) {
   const pool = loadPool();
   const targets = idOrEmail
@@ -712,7 +851,7 @@ export async function probeQuota(idOrEmail) {
         headers: {
           Authorization: `Bearer ${acc.access}`,
           'Content-Type': 'application/json',
-          'User-Agent': 'antigravity/1.15.8 darwin/arm64',
+          'User-Agent': ANTIGRAVITY_PROBE_USER_AGENT,
         },
         body: JSON.stringify({ project: acc.projectId || ANTIGRAVITY_DEFAULT_PROJECT_ID }),
       });
@@ -742,12 +881,16 @@ export async function probeQuota(idOrEmail) {
       const scored = candidates.filter((row) => typeof row.fraction === 'number');
       const worst = scored.length > 0 ? scored.reduce((low, row) => (row.fraction < low.fraction ? row : low)) : null;
       const resetTime = scored.map((row) => row.resetTime).filter(Boolean).sort()[0] ?? null;
+      // The grouped summary is what Antigravity itself renders (and the only
+      // place weekly limits show up); per-model rows stay as the detail view.
+      const summary = await fetchQuotaSummary(acc.access, acc.projectId);
       acc.lastQuota = {
         percent: worst === null ? null : worst.percent,
         bottleneck: worst === null ? null : worst.name,
         resetTime,
         checkedAt: Date.now(),
         ok: true,
+        groups: summary.ok ? summary.groups : [],
       };
       results.push({
         id: acc.id,
@@ -756,6 +899,7 @@ export async function probeQuota(idOrEmail) {
         percent: acc.lastQuota.percent,
         bottleneck: acc.lastQuota.bottleneck,
         resetTime,
+        groups: acc.lastQuota.groups,
         models: rows.sort((a, b) => (a.percent ?? 101) - (b.percent ?? 101)),
       });
     } catch (err) {
@@ -782,7 +926,7 @@ export async function testAccountQuota(idOrEmail) {
       headers: {
         Authorization: `Bearer ${acc.access}`,
         'Content-Type': 'application/json',
-        'User-Agent': 'antigravity/1.15.8 darwin/arm64',
+        'User-Agent': ANTIGRAVITY_PROBE_USER_AGENT,
       },
       body: JSON.stringify({ project: acc.projectId || ANTIGRAVITY_DEFAULT_PROJECT_ID }),
     });

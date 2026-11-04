@@ -1,6 +1,6 @@
 {
   "name": "@local/dsh-antigravity-pool",
-  "version": "2.9.1",
+  "version": "2.10.0",
   "private": true,
   "type": "module",
   "description": "Multi-account Antigravity OAuth pool with live quota meters: rotates Google accounts, cools down on quota, syncs the active grant.",
@@ -22,7 +22,8 @@
     ".env.example",
     "README.md",
     "ui.html",
-    "docs/oauth-client.md"
+    "docs/oauth-client.md",
+    "docs/models-and-quota.md"
   ],
   "scripts": {
     "test": "node test-pool.mjs"

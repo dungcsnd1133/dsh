@@ -22,6 +22,8 @@ import {
   exchangeCallback,
   rememberHandshake,
   takeHandshake,
+  fetchQuotaSummary,
+  fetchModelCatalogue,
   configureOAuthClientFile,
   oauthClientSource,
   saveOAuthClient,
@@ -345,6 +347,38 @@ export function apply(ctx, config) {
           const body = await readBody(req)
           recordAccountSuccess(String(body.id || ''))
           json(res, 200, { ok: true })
+          return
+        }
+
+        // Which models can this deployment's accounts actually use?
+        if (pathName === '/antigravity/api/models' && (req.method === 'GET' || req.method === 'POST')) {
+          try {
+            const account = await getActiveValidAccount()
+            if (!account) return json(res, 404, { error: 'pool empty' })
+            const catalogue = await fetchModelCatalogue(account.access, account.projectId)
+            if (!catalogue.ok) return json(res, 502, { error: catalogue.reason, models: [] })
+            json(res, 200, { ok: true, email: account.email, count: catalogue.models.length, models: catalogue.models })
+          } catch (err) {
+            json(res, 503, { error: err instanceof Error ? err.message : String(err) })
+          }
+          return
+        }
+
+        // Grouped limits exactly as the Antigravity panel shows them.
+        if (pathName === '/antigravity/api/quota-summary' && (req.method === 'GET' || req.method === 'POST')) {
+          try {
+            const account = await getActiveValidAccount()
+            if (!account) return json(res, 404, { error: 'pool empty' })
+            const summary = await fetchQuotaSummary(account.access, account.projectId)
+            json(res, summary.ok ? 200 : 502, {
+              ok: summary.ok,
+              email: account.email,
+              groups: summary.groups,
+              ...(summary.reason ? { reason: summary.reason } : {}),
+            })
+          } catch (err) {
+            json(res, 503, { error: err instanceof Error ? err.message : String(err) })
+          }
           return
         }
 

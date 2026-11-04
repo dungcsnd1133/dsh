@@ -77,6 +77,26 @@ trên máy khác). Bản plugin tách hardcoded path ra `config`/env và thêm f
    `ANTIGRAVITY_CLIENT_ID` / `ANTIGRAVITY_CLIENT_SECRET` được ưu tiên nếu có.
 5. Khởi động lại DSH khi các phiên đã rảnh.
 
+## Model và quota
+
+Hai tài liệu riêng:
+
+- **[docs/models-and-quota.md](docs/models-and-quota.md)** — 26 model dùng được
+  (Claude 5.5, Gemini 4 Argon / 3.8 Flash / 3.1 Flash Image, GPT-OSS), khả năng
+  từng model, và cách quota chia **2 nhóm × 2 cửa sổ** (5h + weekly) chứ không
+  theo từng model. Ghi rõ cái bẫy User-Agent: UA 1.x chỉ trả nhóm Claude/GPT và
+  giấu hẳn nhóm Gemini.
+- **[docs/oauth-client.md](docs/oauth-client.md)** — lấy và kiểm chứng OAuth
+  client.
+
+API tương ứng:
+
+| Route | Trả về |
+|---|---|
+| `GET /antigravity/api/models` | Danh sách model + khả năng + % từng model |
+| `GET /antigravity/api/quota-summary` | 2 nhóm × 2 cửa sổ, đúng như app |
+| `POST /antigravity/api/quota` | Probe tài khoản, kèm `groups` |
+
 ## Trang quản lý & API
 
 Mở **`/antigravity`** trong browser của DSH — "control room" dark dashboard:
