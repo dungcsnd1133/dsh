@@ -1,5 +1,15 @@
 # DSH
 
+## Tự phục hồi Railway và media — 04/11/2026
+
+[Bộ giám sát DSH và Cloudflare Tunnel](ops/reliability/README.md) chạy lại tiến
+trình khi thoát, kể cả mã 0. Railway dùng `restartPolicyType: ALWAYS`.
+Chuỗi vá context-auto và đăng nhập Safari vẫn được giữ nguyên.
+
+Plugin [dsh-media](https://github.com/dungcsnd1133/dsh-media) 1.3.0 mặc định tạo
+và sửa ảnh bằng `cx/gpt-image-2.5`; có Gemini 512/1K/2K/4K. Đã gỡ công cụ tạo
+ảnh/video x.ai, giữ TTS và khả năng xem/tải media cũ.
+
 ## Cập nhật ngân sách ngữ cảnh — 04/11/2026
 
 Đã bổ sung [plugin chọn ngân sách token](plugins/dsh-context-auto/README.md)
