@@ -1,5 +1,11 @@
 # DSH
 
+## Khôi phục danh sách model — 04/11/2026
+
+[Sửa lỗi adapter khi cấu hình Google](ops/model-catalog-recovery/README.md):
+bỏ protocol override không hợp lệ, khôi phục 7 model TLPRO và 2 model Google,
+giữ nguyên tài khoản và các thông số model.
+
 ## Menu model và hiển thị code — 04/11/2026
 
 [Bản sửa menu model trên điện thoại](ops/mobile-model-menu/README.md) tránh
