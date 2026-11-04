@@ -106,6 +106,19 @@ Trang nghe ở `http://127.0.0.1:3082`. Bản public hiện tại là `https://a
 | `dsh-media` | [dungcsnd1133/dsh-media](https://github.com/dungcsnd1133/dsh-media) |
 | `dsh-video-watch` | [dungcsnd1133/dsh-video-watch](https://github.com/dungcsnd1133/dsh-video-watch). Cần `ffmpeg` và `yt-dlp`. |
 | `dsh-media-play`, `hide-session-memory-hud` | thư mục `plugins/` trong repo này |
+| `dsh-antigravity-pool` | [`plugins/dsh-antigravity-pool`](plugins/dsh-antigravity-pool/README.md) — pool tài khoản Antigravity, UI `/antigravity` + card Settings |
 | `dsh-mobile`, `dshmarket`, `brooks-lint`, `@bangbang-03/dsh-memory`, `dsh-web-artifact-designer` | npm, đúng phiên bản trong `profile/package.json` |
 
 Model mặc định: `xai` / `grok-4.7`. Feishu tắt.
+
+## Nguồn model Google (Antigravity)
+
+Provider `google` dùng OAuth Antigravity thay vì API key Gemini, cần patch
+`pi-ai` — xem [`ops/antigravity-google-provider`](ops/antigravity-google-provider/README.md).
+
+> **Bẫy:** khai báo `providers.google.api` làm `dsh-llm-pi-ai` lỗi schema lúc
+> khởi động; không adapter nào đăng ký và **tất cả** provider biến mất khỏi
+> model picker. Để trống trường này.
+
+Nâng cấp DSH sẽ ghi đè `pi-ai` và làm mất patch — chạy lại
+`node ops/antigravity-google-provider/patch-pi-ai.mjs` sau mỗi lần nâng.
