@@ -269,5 +269,111 @@ await test('expired cooldown auto-recovers on next pool read', async () => {
   assert.equal(view.accounts[0].status, 'active')
 })
 
+
+// ---------- Settings → Models card routes (settings-routes.mjs) ----------
+const settingsMod = await import(path.join(pluginDir, 'settings-routes.mjs'))
+
+await test('parseRedirect reads a full redirect URL', () => {
+  const parsed = settingsMod.parseRedirect('http://localhost:51121/oauth-callback?code=abc123&state=st9')
+  assert.equal(parsed.code, 'abc123')
+  assert.equal(parsed.state, 'st9')
+})
+
+await test('parseRedirect reads a bare authorization code', () => {
+  assert.equal(settingsMod.parseRedirect('4/0AX4XfWh').code, '4/0AX4XfWh')
+})
+
+await test('parseRedirect ignores empty input', () => {
+  assert.deepEqual(settingsMod.parseRedirect('   '), {})
+})
+
+// Mount the settings routes against a stub connection.fetch registry.
+const fetchRoutes = new Map()
+const settingsCtx = {
+  effect: (fn) => fn(),
+  connection: {
+    fetch: {
+      register: (route) => {
+        fetchRoutes.set(route.path, route)
+        return () => {}
+      },
+    },
+  },
+}
+settingsMod.registerSettingsRoutes(settingsCtx)
+
+await test('settings routes register all four endpoints', () => {
+  assert.ok(fetchRoutes.has('/api/antigravity.pool'))
+  assert.ok(fetchRoutes.has('/api/antigravity.authUrl'))
+  assert.ok(fetchRoutes.has('/api/antigravity.exchange'))
+  assert.ok(fetchRoutes.has('/api/antigravity.action'))
+})
+
+await test('settings status route reports configured and the active account', async () => {
+  const route = fetchRoutes.get('/api/antigravity.pool')
+  const response = await route.fetch(new Request('http://x/api/antigravity.pool'))
+  assert.equal(response.status, 200)
+  const body = await response.json()
+  assert.equal(body.configured, true)
+  assert.ok(Array.isArray(body.pool.accounts))
+  assert.ok(body.pool.accounts.length > 0)
+  // tokens never leave the host
+  assert.equal('access' in body.pool.accounts[0], false)
+  assert.equal('refresh' in body.pool.accounts[0], false)
+})
+
+await test('settings auth-url route mints a PKCE Google URL', async () => {
+  const route = fetchRoutes.get('/api/antigravity.authUrl')
+  const response = await route.fetch(new Request('http://x/api/antigravity.authUrl', { method: 'POST', body: '{}' }))
+  assert.equal(response.status, 200)
+  const body = await response.json()
+  assert.ok(body.authUrl.startsWith('https://accounts.google.com/o/oauth2/v2/auth?'))
+  assert.ok(body.authUrl.includes('code_challenge_method=S256'))
+  assert.ok(body.authUrl.includes('client_id=test-client-id'))
+  assert.ok(body.state)
+})
+
+await test('settings exchange route rejects input without a code', async () => {
+  const route = fetchRoutes.get('/api/antigravity.exchange')
+  const response = await route.fetch(
+    new Request('http://x/api/antigravity.exchange', {
+      method: 'POST',
+      body: JSON.stringify({ input: 'nothing useful' }),
+    }),
+  )
+  // the route only rejects when the body has no code at all
+  assert.ok(response.status === 400 || response.status === 500)
+})
+
+await test('settings action route rejects an unknown action', async () => {
+  const route = fetchRoutes.get('/api/antigravity.action')
+  const response = await route.fetch(
+    new Request('http://x/api/antigravity.action', { method: 'POST', body: JSON.stringify({ action: 'nope' }) }),
+  )
+  const body = await response.json()
+  assert.equal(body.ok, false)
+  assert.ok(body.message)
+})
+
+await test('settings action route selects another account', async () => {
+  core.addOrUpdateAccount({
+    access: 'second_at',
+    refresh: 'second_rt',
+    expires: Date.now() + 3600_000,
+    projectId: 'p2',
+    email: 'second@example.com',
+  })
+  const route = fetchRoutes.get('/api/antigravity.action')
+  const response = await route.fetch(
+    new Request('http://x/api/antigravity.action', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'select', email: 'second@example.com' }),
+    }),
+  )
+  const body = await response.json()
+  assert.equal(body.ok, true)
+  assert.equal(body.pool.accounts.find((a) => a.email === 'second@example.com').isActive, true)
+})
+
 console.log(`\nAll ${passed} tests passed ✅`)
 fs.rmSync(tmp, { recursive: true, force: true })

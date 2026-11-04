@@ -4,15 +4,26 @@ Quản lý **xoay vòng nhiều tài khoản Antigravity** (Google OAuth) cho DS
 Khi một tài khoản chạm quota, pool tự chuyển sang tài khoản kế tiếp và cho tài khoản
 kia nghỉ `cooldownMinutes` phút rồi tự phục hồi.
 
-Phiên bản **2.0.0** — thay thế bản placeholder `apply(){}` trước đây.
+Phiên bản **2.2.0** — thêm thẻ quản lý trong **Settings → Models** của DSH,
+không thay thế trang `/antigravity` sẵn có.
 
 ## Kiến trúc
 
 ```text
-index.js        → DSH plugin: apply(ctx, config) + HTTP routes /antigravity/*
-pool-core.mjs   → logic pool (kế thừa từ applet/antigravity-pool.mjs, đã tách cấu hình)
-test-pool.mjs   → 17 kiểm thử offline (fetch giả, không gọi Google)
+index.js           → DSH plugin: apply(ctx, config) + HTTP routes /antigravity/*
+pool-core.mjs      → logic pool (kế thừa từ applet/antigravity-pool.mjs, đã tách cấu hình)
+settings-routes.mjs→ 4 route /api/antigravity.* sau fence xác thực của DSH
+client.js          → thẻ "Google Antigravity accounts" trong Settings → Models
+ui.html            → trang quản lý độc lập tại /antigravity
+test-pool.mjs      → 26 kiểm thử offline (fetch giả, không gọi Google)
 ```
+
+Có **hai giao diện**, dùng chung một pool:
+
+| Giao diện | Vị trí | Truy cập |
+|---|---|---|
+| Control room (v2.1.0) | `/antigravity` | Route `webServer` thường, không qua fence `/api` |
+| Settings card (v2.2.0) | Settings → Models | Route `connection.fetch` trên `/api`, có xác thực |
 
 Nguồn logic gốc: `applet/antigravity-pool.mjs` trong repo này (chạy tại `/app/applet`
 trên máy khác). Bản plugin tách hardcoded path ra `config`/env và thêm fetch-injectable
@@ -92,6 +103,34 @@ Mở **`/antigravity`** trong browser của DSH — "control room" dark dashboar
 | `POST /antigravity/api/test` | Probe `fetchAvailableModels` của Cloud Code |
 | `POST /antigravity/api/config` | Đổi `{cooldownMinutes, retryOnQuota, strategy}` |
 | `POST /antigravity/api/remove` | Gỡ tài khoản `{id}` |
+
+## Thẻ Settings → Models
+
+Giao diện thứ hai nằm ngay trong hộp thoại Settings của DSH, dưới danh sách
+provider model. Nó cần service `connection` của DSH Web; composition không có
+service này (headless/ACP) sẽ bỏ qua thẻ và chỉ giữ trang `/antigravity`.
+
+| Thành phần | Chức năng |
+|---|---|
+| `Google Antigravity accounts` | Hiển thị `x/y tài khoản sẵn sàng` |
+| `Add account` | Modal đăng nhập Google: tạo URL PKCE, dán redirect URL để đổi code |
+| `Use this account` | Chuyển tài khoản đang dùng |
+| `Test` | Gọi `fetchAvailableModels` kiểm tra quota |
+| `Reset quota` | Xoá cooldown của tài khoản |
+| `Remove` | Xoá tài khoản khỏi pool |
+| Cooldown (phút) | Lưu `cooldownMinutes` |
+
+Bốn route của thẻ:
+
+| Route | Method | Việc |
+|---|---|---|
+| `/api/antigravity.pool` | GET, HEAD | Snapshot pool đã lọc token |
+| `/api/antigravity.authUrl` | POST | Tạo URL Google PKCE |
+| `/api/antigravity.exchange` | POST | Đổi code → lưu tài khoản |
+| `/api/antigravity.action` | POST | `select`, `remove`, `test`, `reset-quota`, `config` |
+
+Access/refresh token **không bao giờ** rời khỏi host: route status chỉ trả
+snapshot đã qua `getSanitizedPoolView()`.
 
 ## Bảo mật
 
