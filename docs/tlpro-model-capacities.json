@@ -6,37 +6,64 @@
           {
             "id": "gpt-6-astra",
             "contextWindow": 1050000,
-            "maxTokens": 128000
+            "maxTokens": 128000,
+            "input": [
+              "text",
+              "image"
+            ]
           },
           {
             "id": "gpt-6.1-sol",
             "contextWindow": 1050000,
-            "maxTokens": 128000
+            "maxTokens": 128000,
+            "input": [
+              "text",
+              "image"
+            ]
           },
           {
             "id": "gpt-6.1-terra",
             "contextWindow": 1050000,
-            "maxTokens": 128000
+            "maxTokens": 128000,
+            "input": [
+              "text",
+              "image"
+            ]
           },
           {
             "id": "deepseek-v4.1-flash",
             "contextWindow": 1000000,
-            "maxTokens": 393216
+            "maxTokens": 393216,
+            "input": [
+              "text",
+              "image"
+            ]
           },
           {
             "id": "glm-5.3",
             "contextWindow": 1000000,
-            "maxTokens": 131072
+            "maxTokens": 131072,
+            "input": [
+              "text"
+            ]
           },
           {
             "id": "glm-5.3-flash",
             "contextWindow": 1000000,
-            "maxTokens": 131072
+            "maxTokens": 131072,
+            "input": [
+              "text",
+              "image"
+            ]
           },
           {
             "id": "gemini-4-argon",
             "contextWindow": 1048576,
-            "maxTokens": 65536
+            "maxTokens": 65536,
+            "input": [
+              "text",
+              "image"
+            ]
           }
         ]
       }

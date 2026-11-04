@@ -24,6 +24,15 @@ Thông số dựa trên tài liệu hãng; chưa kiểm tra bằng một yêu c�
 Dòng phần trăm trên lượt chat cũ là số liệu yêu cầu đã chạy, có thể vẫn hiện mẫu
 số 262K tới lượt xử lý tiếp theo. Không sửa lịch sử để thay số đó.
 
+## Khả năng nhận ảnh
+
+Khai báo `input` theo từng model trong tệp cấu hình mẫu. GPT 6 Astra, GPT 6.1
+Sol/Terra, DeepSeek V4.1 Flash, Gemini 4 Argon và GLM 5.3 Flash dùng
+`["text", "image"]`. GLM 5.3 chỉ dùng `["text"]`.
+
+TLPRO `/models` chỉ trả ID; để trống `input` khiến DSH coi model là chỉ nhận
+văn bản và chặn đính kèm ảnh. Không bật `defaultInput` nhận ảnh cho toàn provider.
+
 ## Nguồn
 
 - [DeepSeek Models & Pricing](https://api-docs.deepseek.com/quick_start/pricing)
