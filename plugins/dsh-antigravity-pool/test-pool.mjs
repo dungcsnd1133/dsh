@@ -467,6 +467,35 @@ await test('expired cooldown auto-recovers on next pool read', async () => {
 // ---------- Settings → Models card routes (settings-routes.mjs) ----------
 const settingsMod = await import(path.join(pluginDir, 'settings-routes.mjs'))
 
+await test('every component client.js renders is defined in the bundle', () => {
+  const client = fs.readFileSync(path.join(pluginDir, 'client.js'), 'utf8')
+  // Regression: removing AddDialog once deleted AccountCard too, and the slot
+  // crashed at runtime with "ReferenceError: AccountCard is not defined" —
+  // the card appeared for a frame and vanished.
+  const used = new Set([...client.matchAll(/h\(\s*([A-Z][A-Za-z0-9_]*)\s*,/g)].map((m) => m[1]))
+  const defined = new Set([...client.matchAll(/function ([a-zA-Z][A-Za-z0-9_]*)\s*\(/g)].map((m) => m[1]))
+  for (const name of used) {
+    assert.ok(defined.has(name), 'component ' + name + ' được dùng nhưng không định nghĩa')
+  }
+  assert.ok(defined.has('AccountCard'), 'AccountCard phải tồn tại')
+  assert.ok(defined.has('AntigravityPool'), 'AntigravityPool phải tồn tại')
+  assert.ok(defined.has('QuotaMeter'), 'QuotaMeter phải tồn tại')
+  assert.ok(defined.has('quotaClass'), 'quotaClass helper phải tồn tại')
+
+  // Catch helpers used but never defined. Restricted to component names
+  // (capitalised) and the specific helpers that were lost before: scanning all
+  // lowercase words would also match CSS keywords inside template strings.
+  const usedComponents = new Set([...client.matchAll(/h\(\s*([A-Z][A-Za-z0-9_]*)\s*,/g)].map((m) => m[1]))
+  for (const name of usedComponents) {
+    assert.ok(defined.has(name), 'component ' + name + ' được dùng nhưng không định nghĩa')
+  }
+  for (const helper of ['quotaClass', 'fill', 'call', 'dictionary', 'describeQuota']) {
+    if (client.includes(helper + '(')) {
+      assert.ok(defined.has(helper), 'helper ' + helper + ' được gọi nhưng không định nghĩa')
+    }
+  }
+})
+
 await test('the Settings card links to the page instead of duplicating the add dialog', () => {
   const client = fs.readFileSync(path.join(pluginDir, 'client.js'), 'utf8')
   // One implementation: the card sends people to /antigravity to add an account.

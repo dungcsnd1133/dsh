@@ -284,6 +284,139 @@ window.__ModuleLoader__.load({
      * @param props - copy, close callback, and the refresh hook.
      * @returns the modal element tree.
      */
+    /**
+     * Resolve the health class for a percentage.
+     * @param percent - remaining share, 0..100, or null when unmeasured.
+     * @returns CSS class suffix used by both the number and the bar.
+     */
+    function quotaClass(percent) {
+      if (typeof percent !== 'number') return 'unknown'
+      if (percent >= 60) return 'high'
+      if (percent >= 25) return 'mid'
+      return 'low'
+    }
+
+    function QuotaMeter({ quota, t, onRefresh, busy }) {
+      const percent = quota && typeof quota.percent === 'number' ? quota.percent : null
+      const kind = quotaClass(percent)
+      const reset = quota && quota.resetTime ? new Date(quota.resetTime) : null
+      const resetText =
+        reset && !Number.isNaN(reset.getTime())
+          ? `${t.resetAt} ${reset.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`
+          : null
+      const measured =
+        quota && quota.checkedAt
+          ? fill(t.measured, {
+              time: new Date(quota.checkedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }),
+            })
+          : null
+
+      return h(
+        'div',
+        { className: 'agp-quota' },
+        h(
+          'div',
+          { className: 'agp-quota-head' },
+          percent === null
+            ? h('span', { className: 'agp-quota-num unknown' }, quota && quota.message ? quota.message : t.quotaUnknown)
+            : h('span', { className: `agp-quota-num ${kind}` }, fill(t.quotaLeft, { percent })),
+          h('span', { className: 'agp-quota-label' }, t.quota),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'agp-btn agp-btn-sm',
+              style: { marginLeft: 'auto', height: '24px', padding: '0 8px', fontSize: '11px' },
+              disabled: busy,
+              onClick: onRefresh,
+              title: t.quotaHint,
+            },
+            busy ? t.quotaChecking : t.quotaRefresh,
+          ),
+        ),
+        h(
+          'div',
+          { className: 'agp-bar' },
+          h('div', {
+            className: `agp-bar-fill ${kind}`,
+            style: percent === null ? undefined : { width: `${Math.max(0, Math.min(100, percent))}%` },
+          }),
+        ),
+        h(
+          'div',
+          { className: 'agp-quota-meta' },
+          quota && quota.bottleneck ? h('span', null, fill(t.bottleneck, { name: quota.bottleneck })) : null,
+          resetText ? h('span', null, resetText) : null,
+          measured ? h('span', null, measured) : null,
+        ),
+      )
+    }
+
+    function AccountCard({ account, t, running, act, onRefreshQuota, quotaBusy }) {
+      const badge = account.isActive
+        ? h('span', { className: 'agp-badge agp-badge-on' }, t.active)
+        : account.status === 'cooldown'
+          ? h('span', { className: 'agp-badge agp-badge-off' }, fill(t.cooldown, { n: Math.max(1, Math.round(account.cooldownRemainingSec / 60)) }))
+          : account.expired
+            ? h('span', { className: 'agp-badge agp-badge-warn' }, t.expired)
+            : h('span', { className: 'agp-badge agp-badge-on' }, t.valid)
+
+      return h(
+        'div',
+        { className: account.isActive ? 'agp-card agp-card-active' : 'agp-card' },
+        h(
+          'div',
+          { className: 'agp-row' },
+          h('span', { className: 'agp-email' }, account.email),
+          badge,
+          account.label ? h('span', { className: 'agp-meta' }, account.label) : null,
+        ),
+        // Live quota is why someone opens this card, so it sits directly under
+        // the identity instead of behind a Test button.
+        h(QuotaMeter, {
+          quota: account.lastQuota,
+          t,
+          busy: quotaBusy === account.id,
+          onRefresh: () => onRefreshQuota(account),
+        }),
+        account.lastError ? h('div', { className: 'agp-err' }, account.lastError) : null,
+        h(
+          'div',
+          { className: 'agp-actions' },
+          account.isActive
+            ? null
+            : h(
+                'button',
+                { type: 'button', className: 'agp-btn agp-btn-sm', disabled: running, onClick: () => act('select', account) },
+                t.switchTo,
+              ),
+          h(
+            'button',
+            { type: 'button', className: 'agp-btn agp-btn-sm', disabled: running, onClick: () => act('reset-quota', account) },
+            t.reset,
+          ),
+          h(
+            'button',
+            { type: 'button', className: 'agp-btn agp-btn-sm agp-btn-danger', disabled: running, onClick: () => act('remove', account) },
+            t.remove,
+          ),
+        ),
+        h(
+          'details',
+          { className: 'agp-details' },
+          h('summary', null, t.details),
+          h(
+            'div',
+            { className: 'agp-quota-meta', style: { marginTop: '4px' } },
+            h('span', null, `${t.project}: ${account.projectId}`),
+            h('span', null, `${t.expiry}: ${dateText(account.expires)}`),
+            h('span', null, `${t.requests}: ${account.totalRequests}`),
+            h('span', null, `${t.quotaHits}: ${account.quotaHits}`),
+          ),
+        ),
+      )
+    }
+
     function AntigravityPool() {
       const t = dictionary()
       const [state, setState] = useState({ status: 'loading', pool: null, configured: true })
