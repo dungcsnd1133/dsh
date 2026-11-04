@@ -29,6 +29,7 @@ import {
   ANTIGRAVITY_SCOPES,
   ANTIGRAVITY_DEFAULT_PROJECT_ID,
 } from './pool-core.mjs'
+import { registerSettingsRoutes } from './settings-routes.mjs'
 
 export const name = 'dsh-antigravity-pool'
 export const inject = ['webServer']
@@ -352,4 +353,10 @@ export function apply(ctx, config) {
       }
     },
   })
+
+  // Settings → Models card routes. They need the Connection service, which the
+  // Web composition always mounts; a headless composition simply skips them
+  // and keeps the standalone /antigravity page.
+  const connection = typeof ctx.get === 'function' ? ctx.get('connection') : undefined
+  if (connection !== undefined) registerSettingsRoutes(ctx)
 }

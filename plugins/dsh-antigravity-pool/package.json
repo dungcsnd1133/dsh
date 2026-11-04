@@ -1,6 +1,6 @@
 {
   "name": "@local/dsh-antigravity-pool",
-  "version": "2.5.0",
+  "version": "2.6.0",
   "private": true,
   "type": "module",
   "description": "Multi-account Antigravity OAuth pool: rotates Google accounts, cools down on quota, syncs the active grant.",
@@ -8,14 +8,19 @@
   "exports": {
     ".": "./index.js",
     "./pool-core": "./pool-core.mjs",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./client": "./client.js",
+    "./settings-routes": "./settings-routes.mjs"
   },
   "files": [
     "index.js",
     "pool-core.mjs",
+    "settings-routes.mjs",
+    "client.js",
     "cordis.patch.yml",
     "test-pool.mjs",
     ".env.example",
+    "README.md",
     "ui.html"
   ],
   "scripts": {
@@ -27,6 +32,16 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-layout"
+      ]
     }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-client-connection": "^0.2.1-rc.5"
   }
 }
