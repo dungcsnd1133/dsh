@@ -356,6 +356,13 @@ await test('UI page renders from ui.html (control room)', async () => {
   assert.match(html, /fClientSecret/, 'UI nhập được client secret')
   assert.ok(!/fAccess|fRefresh|Dán token/.test(html), 'UI không còn nhập token tay')
   assert.match(html, /class="n"/, 'badge bước dùng class riêng (hết chồng chữ)')
+  // mobile + a11y checklist
+  assert.match(html, /viewport-fit=cover/, 'safe area viewport')
+  assert.match(html, /prefers-reduced-motion/, 'tôn trọng reduced motion')
+  assert.match(html, /focus-visible/, 'focus ring cho keyboard')
+  assert.match(html, /for="fClientId"/, 'label liên kết input')
+  assert.match(html, /inputmode/, 'bàn phím mobile phù hợp')
+  assert.ok(!/\u23f3|\u26a0|\ud83d\udd17|\ud83d\udcbe|\ud83e\uddf2/.test(html), 'không dùng emoji làm icon cấu trúc')
 })
 
 await test('unknown api path returns 404 JSON', async () => {
