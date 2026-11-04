@@ -55,8 +55,18 @@ trên máy khác). Bản plugin tách hardcoded path ra `config`/env và thêm f
 4. Cấu hình OAuth client — **nhập trong UI**, không cần sửa biến môi trường:
 
    Mở `/antigravity` → bấm banner đỏ hoặc **+ Thêm tài khoản** → dán
-   `CLIENT ID` + `CLIENT SECRET` (tạo OAuth client loại *Desktop app* tại
-   Google Cloud Console, redirect URI `http://localhost:51121/oauth-callback`).
+   `CLIENT ID` + `CLIENT SECRET`.
+
+   Tạo OAuth client tại Google Cloud Console, và thêm **Authorised redirect URI**:
+
+   ```text
+   https://<domain-dsh-cua-ban>/antigravity/oauth/callback
+   ```
+
+   Loại *Web application* cho phép redirect về domain thật, nhờ vậy bấm
+   "Đăng nhập bằng Google" là xong — không phải copy URL. Nếu client chỉ là
+   *Desktop app* (chỉ cho `localhost`), plugin vẫn chạy nhưng phải dùng chế độ
+   dán URL dự phòng.
    Plugin lưu vào `<stateDir>/oauth-client.json` với mode `0600` trên volume —
    không nằm trong git.
 

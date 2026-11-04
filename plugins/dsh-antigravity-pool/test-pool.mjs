@@ -244,14 +244,55 @@ await test('remove account works and activeIndex clamps', async () => {
   assert.equal(pool.totalAccounts, 1)
 })
 
-await test('auth/start returns Google consent URL (env required)', async () => {
+await test('auth/start defaults to same-origin webflow (no URL copying)', async () => {
   const r = await call('POST', '/antigravity/api/auth/start', {})
   assert.equal(r.status, 200)
   assert.ok(r.json.authUrl.startsWith('https://accounts.google.com/o/oauth2/v2/auth?'))
   assert.ok(r.json.authUrl.includes('access_type=offline'))
   assert.ok(r.json.authUrl.includes('code_challenge_method=S256'))
   assert.ok(r.json.codeVerifier.length > 40)
+  assert.equal(r.json.mode, 'webflow')
+  assert.ok(r.json.redirectUri.endsWith('/antigravity/oauth/callback'), 'redirect về chính host')
+  assert.ok(r.json.authUrl.includes(encodeURIComponent('/antigravity/oauth/callback')), 'authUrl mang redirect same-origin')
+  assert.ok(r.json.state && r.json.state.length > 20, 'state chống CSRF')
+})
+
+await test('auth/start paste mode still offers the loopback redirect', async () => {
+  const r = await call('POST', '/antigravity/api/auth/start', { mode: 'paste' })
+  assert.equal(r.status, 200)
+  assert.equal(r.json.mode, 'paste')
   assert.equal(r.json.redirectUri, 'http://localhost:51121/oauth-callback')
+})
+
+await test('oauth callback completes the flow end to end (no paste)', async () => {
+  const start = await call('POST', '/antigravity/api/auth/start', {})
+  const before = calls.length
+  const res = fakeRes()
+  await handler(
+    fakeReq('GET', `/antigravity/oauth/callback?code=4%2F0AWEBFLOW&state=${encodeURIComponent(start.json.state)}`),
+    res,
+  )
+  assert.equal(res.code, 200)
+  assert.match(String(res.body), /Đã kết nối tài khoản/, 'trang kết quả thành công')
+  const tokenCalls = calls.slice(before).filter((c) => c.url.startsWith('https://oauth2.googleapis.com/token'))
+  assert.equal(tokenCalls.length, 1)
+  assert.ok(String(tokenCalls[0].init.body).includes('grant_type=authorization_code'))
+  const pool = (await call('GET', '/antigravity/api/pool')).json
+  assert.ok(pool.accounts.length >= 1)
+})
+
+await test('oauth callback rejects an unknown/expired state', async () => {
+  const res = fakeRes()
+  await handler(fakeReq('GET', '/antigravity/oauth/callback?code=x&state=bogus-state'), res)
+  assert.equal(res.code, 200)
+  assert.match(String(res.body), /hết hạn|không khớp/)
+})
+
+await test('oauth callback surfaces the Google error param', async () => {
+  const start = await call('POST', '/antigravity/api/auth/start', {})
+  const res = fakeRes()
+  await handler(fakeReq('GET', `/antigravity/oauth/callback?error=access_denied&state=${encodeURIComponent(start.json.state)}`), res)
+  assert.match(String(res.body), /access_denied/)
 })
 
 await test('auth/exchange pastes callback URL, calls token endpoint, stores account', async () => {

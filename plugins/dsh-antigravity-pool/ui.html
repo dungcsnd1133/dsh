@@ -154,6 +154,14 @@
   .step .t b{color:var(--tx);font-weight:600}
   .step code{font-family:var(--mono);font-size:10.5px;background:rgba(255,255,255,.06);padding:1px 5px;border-radius:4px;word-break:break-all}
   .setupnote{background:var(--panel2);border:1px solid var(--line2);border-left:3px solid var(--acc);border-radius:8px;padding:11px 13px;margin-bottom:14px;display:flex;flex-direction:column;gap:4px}
+  .adv{margin-top:12px;border:1px solid var(--line2);border-radius:8px;background:var(--panel2);overflow:hidden}
+  .adv summary{cursor:pointer;padding:10px 13px;font-size:11.5px;color:var(--tx2);list-style:none}
+  .adv summary::-webkit-details-marker{display:none}
+  .adv summary::before{content:'▸ ';color:var(--acc)}
+  .adv[open] summary::before{content:'▾ '}
+  .adv>div{padding:0 13px 13px;font-size:11.5px;color:var(--tx2);line-height:1.6}
+  .adv code{display:block;font-family:var(--mono);font-size:10.5px;background:var(--bg);border:1px solid var(--line2);
+            border-radius:6px;padding:8px;margin:7px 0;word-break:break-all;color:var(--acc)}
   .setupnote b{font-size:12px;color:var(--tx)}
   .setupnote span{font-size:11.5px;color:var(--tx2);line-height:1.5}
   /* Mobile: modal thành sheet full-screen, input 48px, nút to */
@@ -232,7 +240,7 @@
         <div class="bd">
           <div class="crow">
             <div><div class="ck">Cooldown khi chạm quota</div><div class="cd">phút nghỉ trước khi tự quay lại</div></div>
-            <input type="number" id="cfgCd" min="1" max="720">
+            <input type="number" id="cfgCd" inputmode="numeric" min="1" max="720" aria-label="Cooldown phút">
           </div>
           <div class="crow" style="border:0;padding-top:13px">
             <button class="btn" id="saveCfg">Lưu cấu hình</button>
@@ -275,26 +283,20 @@
 
         <div id="authFlow" style="display:none">
           <div class="steps">
-            <div class="step"><span class="n">1</span><span class="t">Bấm nút dưới → Google mở tab mới, chọn tài khoản, đồng ý hết</span></div>
-            <div class="step"><span class="n">2</span><span class="t">Browser nhảy về <code>localhost:51121/oauth-callback?code=…</code> (trang lỗi là bình thường) — <b>copy nguyên URL trên thanh địa chỉ</b></span></div>
-            <div class="step"><span class="n">3</span><span class="t">Dán URL vào ô dưới → Lưu. Plugin tự đổi code lấy token</span></div>
+            <div class="step"><span class="n">1</span><span class="t">Bấm nút dưới — Google mở trang đăng nhập</span></div>
+            <div class="step"><span class="n">2</span><span class="t">Chọn tài khoản và đồng ý quyền</span></div>
+            <div class="step"><span class="n">3</span><span class="t">Google tự quay về đây và cộng tài khoản vào pool — không phải copy gì</span></div>
           </div>
-          <div class="field">
-            <label for="fEmailL">EMAIL (tuỳ chọn — gắn tên cho tài khoản)</label>
-            <input id="fEmailL" type="email" inputmode="email" autocomplete="email" placeholder="ten@gmail.com">
-          </div>
-          <button class="btn big primary" id="openAuth" style="width:100%">Mở trang đăng nhập Google</button>
-          <div class="field" style="margin-top:14px">
-            <label for="fCallback">URL CALLBACK (dán nguyên URL có ?code=… )</label>
-            <input id="fCallback" placeholder="http://localhost:51121/oauth-callback?code=4%2F0Axxx…&scope=…">
-            <div class="hint" id="cbHint">Chưa có verifier — bấm nút trên trước</div>
-          </div>
-          <div class="field">
-            <label for="fProjL">PROJECT ID (tuỳ chọn)</label>
-            <input id="fProjL" placeholder="rising-fact-p41fc">
-          </div>
-          <button class="btn big primary" id="mSaveLink" style="width:100%">✓ Lưu vào pool</button>
-          <button class="btn" id="changeOauth" style="width:100%;margin-top:9px">Đổi OAuth client khác</button>
+          <button class="btn big primary" id="openAuth" style="width:100%;height:48px">Đăng nhập bằng Google</button>
+          <details class="adv">
+            <summary>Gặp lỗi redirect_uri_mismatch?</summary>
+            <div>
+              Thêm đúng URI này vào <b>Authorised redirect URIs</b> của OAuth client trên Google Cloud Console:
+              <code id="cbUri"></code>
+              <button class="btn" id="copyUri" style="margin-top:8px;width:100%">Sao chép URI</button>
+            </div>
+          </details>
+          <button class="btn" id="changeOauth" style="width:100%;margin-top:11px">Đổi OAuth client khác</button>
         </div>
       </div>
     </div>
@@ -449,7 +451,10 @@ async function refresh(){
 // add-account modal
 let authSession=null // {codeVerifier, redirectUri}
 let oauthReady=false
-$('#addBtn').onclick=()=>{syncOauthPane();$('#mask').classList.add('show')}
+$('#addBtn').onclick=()=>{
+  const el=$('#cbUri'); if(el && !el.textContent) el.textContent=location.origin+'/antigravity/oauth/callback'
+  syncOauthPane();$('#mask').classList.add('show')
+}
 $('#mCancel').onclick=()=>$('#mask').classList.remove('show')
 $('#mask').onclick=(e)=>{if(e.target===$('#mask'))$('#mask').classList.remove('show')}
 
@@ -483,38 +488,22 @@ $('#changeOauth').onclick=async()=>{
   }catch(e){toast('✗ '+e.message,'err')}
 }
 
-// Bước 1: tạo link đăng nhập Google (PKCE)
+// Một nút duy nhất: mở Google, Google tự quay về /antigravity/oauth/callback
 $('#openAuth').onclick=async()=>{
   const b=$('#openAuth');b.disabled=true
   try{
-    const r=await api('/antigravity/api/auth/start',{method:'POST',headers:{'content-type':'application/json'},body:'{}'})
-    authSession={codeVerifier:r.codeVerifier,redirectUri:r.redirectUri}
-    $('#cbHint').textContent='✓ Verifier sẵn sàng — đăng nhập xong dán URL vào ô dưới'
-    $('#cbHint').style.color='var(--ok)'
-    window.open(r.authUrl,'_blank')
-    toast('✓ Đã mở Google — chọn tài khoản và đồng ý','ok')
-  }catch(e){toast('✗ '+e.message,'err')}
-  b.disabled=false
+    const r=await api('/antigravity/api/auth/start',{method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({origin:location.origin})})
+    $('#cbUri').textContent=r.redirectUri
+    // Cùng tab để chắc chắn quay lại được (popup hay bị chặn trên mobile)
+    location.href=r.authUrl
+  }catch(e){toast('✗ '+e.message,'err');b.disabled=false}
 }
 
-// Bước 2: dán URL callback → đổi code lấy token
-$('#mSaveLink').onclick=async()=>{
-  const cb=$('#fCallback').value.trim()
-  if(!cb)return toast('✗ Dán URL callback có ?code=… trước','err')
-  if(!authSession)return toast('✗ Bấm «Mở trang đăng nhập Google» trước','err')
-  const b=$('#mSaveLink');b.disabled=true
-  try{
-    const body={callbackUrlOrCode:cb,codeVerifier:authSession.codeVerifier,redirectUri:authSession.redirectUri}
-    const email=$('#fEmailL').value.trim();if(email)body.email=email
-    const proj=$('#fProjL').value.trim();if(proj)body.projectId=proj
-    const r=await api('/antigravity/api/auth/exchange',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)})
-    toast('✓ Đã thêm '+r.email,'ok')
-    $('#mask').classList.remove('show');authSession=null
-    $('#fCallback').value='';$('#fEmailL').value='';$('#fProjL').value=''
-    $('#cbHint').textContent='Chưa có verifier — bấm nút trên trước';$('#cbHint').style.color=''
-    await refresh()
-  }catch(e){toast('✗ '+e.message,'err')}
-  b.disabled=false
+$('#copyUri').onclick=async()=>{
+  const t=$('#cbUri').textContent||''
+  try{await navigator.clipboard.writeText(t);toast('✓ Đã sao chép redirect URI','ok')}
+  catch{toast('Không sao chép được — giữ để chọn tay','err')}
 }
 
 $('#saveCfg').onclick=()=>act('/antigravity/api/config',{cooldownMinutes:Number($('#cfgCd').value)||30},'Đã lưu cấu hình')
