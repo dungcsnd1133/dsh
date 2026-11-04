@@ -1,3 +1,6 @@
 - insert:
     - id: dsh-antigravity-pool
       name: '@local/dsh-antigravity-pool'
+      config:
+        stateDir: /data/home/state/superagent/antigravity-pool
+        credentialsFile: /data/home/.credentials.yaml

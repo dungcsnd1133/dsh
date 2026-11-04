@@ -1,20 +1,29 @@
 {
   "name": "@local/dsh-antigravity-pool",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
-  "description": "Multi-account Antigravity OAuth pool manager for DSH Superagent. Reads ANTIGRAVITY_CLIENT_ID and ANTIGRAVITY_CLIENT_SECRET from environment variables; no credentials are stored in this repository.",
+  "description": "Multi-account Antigravity OAuth pool manager for DSH Superagent. Rotates Google OAuth accounts, auto-cools on quota errors, syncs the active grant into .credentials.yaml. Reads ANTIGRAVITY_CLIENT_ID and ANTIGRAVITY_CLIENT_SECRET from environment variables; no credentials are stored in this repository.",
+  "license": "MIT",
   "exports": {
     ".": "./index.js",
+    "./pool-core": "./pool-core.mjs",
     "./package.json": "./package.json"
   },
   "files": [
     "index.js",
-    "cordis.patch.yml"
+    "pool-core.mjs",
+    "cordis.patch.yml",
+    "test-pool.mjs",
+    ".env.example"
   ],
+  "scripts": {
+    "test": "node test-pool.mjs"
+  },
+  "dependencies": {
+    "yaml": "^2.6.0"
+  },
   "dsh": {
-    "bundle": {
-      "patch": "./cordis.patch.yml"
-    }
+    "bundle": { "patch": "./cordis.patch.yml" }
   }
 }
