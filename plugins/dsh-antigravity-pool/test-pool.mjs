@@ -454,6 +454,18 @@ await test('expired cooldown auto-recovers on next pool read', async () => {
 // ---------- Settings → Models card routes (settings-routes.mjs) ----------
 const settingsMod = await import(path.join(pluginDir, 'settings-routes.mjs'))
 
+await test('docs/oauth-client.md ships and distinguishes invalid_grant from invalid_client', () => {
+  const doc = fs.readFileSync(path.join(pluginDir, 'docs', 'oauth-client.md'), 'utf8')
+  // the client-verification trick must be documented with both outcomes
+  assert.match(doc, /invalid_grant/, 'nêu invalid_grant = client đúng')
+  assert.match(doc, /invalid_client/, 'nêu invalid_client = client sai')
+  assert.match(doc, /oauth2\.googleapis\.com\/token/, 'có lệnh curl kiểm chứng')
+  assert.match(doc, /localhost:51121/, 'redirect đúng')
+  // both routes documented: public client and self-created client
+  assert.match(doc, /Cloud Console|console\.cloud\.google\.com/, 'cách B: tự tạo client')
+  assert.match(doc, /opencode-antigravity-auth/, 'dẫn nguồn client công khai')
+})
+
 await test('parseRedirect reads a full redirect URL', () => {
   const parsed = settingsMod.parseRedirect('http://localhost:51121/oauth-callback?code=abc123&state=st9')
   assert.equal(parsed.code, 'abc123')

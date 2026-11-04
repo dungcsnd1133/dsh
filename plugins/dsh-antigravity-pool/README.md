@@ -65,26 +65,16 @@ trên máy khác). Bản plugin tách hardcoded path ra `config`/env và thêm f
            credentialsFile: /data/home/.credentials.yaml
    ```
 
-4. Cấu hình OAuth client — **nhập trong UI**, không cần sửa biến môi trường:
+4. Cấu hình OAuth client — xem hướng dẫn riêng:
+   **[docs/oauth-client.md](docs/oauth-client.md)**.
+   Ngắn gọn: dán `CLIENT ID` + `CLIENT SECRET` vào banner đỏ hoặc trong
+   **+ Thêm tài khoản**. Không nhất thiết phải tự tạo client trên Google
+   Cloud Console — client công khai của app Antigravity dùng được, và tài
+   liệu trên chỉ cách tìm + kiểm chứng trước khi dùng.
 
-   Mở `/antigravity` → bấm banner đỏ hoặc **+ Thêm tài khoản** → dán
-   `CLIENT ID` + `CLIENT SECRET`.
-
-   Tạo OAuth client tại Google Cloud Console, và thêm **Authorised redirect URI**:
-
-   ```text
-   https://<domain-dsh-cua-ban>/antigravity/oauth/callback
-   ```
-
-   Loại *Web application* cho phép redirect về domain thật, nhờ vậy bấm
-   "Đăng nhập bằng Google" là xong — không phải copy URL. Nếu client chỉ là
-   *Desktop app* (chỉ cho `localhost`), plugin vẫn chạy nhưng phải dùng chế độ
-   dán URL dự phòng.
-   Plugin lưu vào `<stateDir>/oauth-client.json` với mode `0600` trên volume —
-   không nằm trong git.
-
-   Biến môi trường `ANTIGRAVITY_CLIENT_ID` / `ANTIGRAVITY_CLIENT_SECRET` vẫn
-   được ưu tiên nếu có (tiện cho deploy tạm), nhưng không bắt buộc.
+   Plugin lưu client vào `<stateDir>/oauth-client.json` với mode `0600` trên
+   volume — không nằm trong git. Biến môi trường
+   `ANTIGRAVITY_CLIENT_ID` / `ANTIGRAVITY_CLIENT_SECRET` được ưu tiên nếu có.
 5. Khởi động lại DSH khi các phiên đã rảnh.
 
 ## Trang quản lý & API
