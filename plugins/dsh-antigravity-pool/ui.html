@@ -283,19 +283,16 @@
 
         <div id="authFlow" style="display:none">
           <div class="steps">
-            <div class="step"><span class="n">1</span><span class="t">Bấm nút dưới — Google mở trang đăng nhập</span></div>
-            <div class="step"><span class="n">2</span><span class="t">Chọn tài khoản và đồng ý quyền</span></div>
-            <div class="step"><span class="n">3</span><span class="t">Google tự quay về đây và cộng tài khoản vào pool — không phải copy gì</span></div>
+            <div class="step"><span class="n">1</span><span class="t">Bấm nút dưới → Google mở trang đăng nhập, chọn tài khoản, đồng ý hết</span></div>
+            <div class="step"><span class="n">2</span><span class="t">Browser chuyển sang <code>localhost:51121/oauth-callback?code=…</code> (trang lỗi là bình thường)</span></div>
+            <div class="step"><span class="n">3</span><span class="t"><b>Copy toàn bộ URL trên thanh địa chỉ</b> rồi dán vào ô dưới → Kết nối</span></div>
           </div>
-          <button class="btn big primary" id="openAuth" style="width:100%;height:48px">Đăng nhập bằng Google</button>
-          <details class="adv">
-            <summary>Gặp lỗi redirect_uri_mismatch?</summary>
-            <div>
-              Thêm đúng URI này vào <b>Authorised redirect URIs</b> của OAuth client trên Google Cloud Console:
-              <code id="cbUri"></code>
-              <button class="btn" id="copyUri" style="margin-top:8px;width:100%">Sao chép URI</button>
-            </div>
-          </details>
+          <button class="btn big primary" id="openAuth" style="width:100%;height:48px">Mở trang đăng nhập Google</button>
+          <div class="field" style="margin-top:13px">
+            <label for="fCallback">DÁN URL CALLBACK</label>
+            <input id="fCallback" placeholder="http://localhost:51121/oauth-callback?code=4%2F0A…" autocomplete="off">
+          </div>
+          <button class="btn big primary" id="mConnect" style="width:100%;height:48px">Kết nối tài khoản</button>
           <button class="btn" id="changeOauth" style="width:100%;margin-top:11px">Đổi OAuth client khác</button>
         </div>
       </div>
@@ -489,21 +486,34 @@ $('#changeOauth').onclick=async()=>{
 }
 
 // Một nút duy nhất: mở Google, Google tự quay về /antigravity/oauth/callback
+// Mở Google với redirect localhost (client Desktop) — sau đó copy URL dán lại
+let pendingVerifier=null
 $('#openAuth').onclick=async()=>{
   const b=$('#openAuth');b.disabled=true
   try{
     const r=await api('/antigravity/api/auth/start',{method:'POST',headers:{'content-type':'application/json'},
-      body:JSON.stringify({origin:location.origin})})
-    $('#cbUri').textContent=r.redirectUri
-    // Cùng tab để chắc chắn quay lại được (popup hay bị chặn trên mobile)
-    location.href=r.authUrl
-  }catch(e){toast('✗ '+e.message,'err');b.disabled=false}
+      body:JSON.stringify({mode:'paste'})})
+    pendingVerifier=r.codeVerifier
+    window.open(r.authUrl,'_blank')
+  }catch(e){toast('✗ '+e.message,'err')}
+  b.disabled=false
 }
 
-$('#copyUri').onclick=async()=>{
-  const t=$('#cbUri').textContent||''
-  try{await navigator.clipboard.writeText(t);toast('✓ Đã sao chép redirect URI','ok')}
-  catch{toast('Không sao chép được — giữ để chọn tay','err')}
+// Dán URL callback → đổi lấy token
+$('#mConnect').onclick=async()=>{
+  const cb=$('#fCallback').value.trim()
+  if(!cb)return toast('✗ Dán URL callback trước','err')
+  if(!pendingVerifier)return toast('✗ Bấm "Mở trang đăng nhập Google" trước','err')
+  const b=$('#mConnect');b.disabled=true;b.textContent='Đang kết nối…'
+  try{
+    const r=await api('/antigravity/api/auth/exchange',{method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({callbackUrlOrCode:cb,codeVerifier:pendingVerifier})})
+    toast('✓ Đã thêm '+r.email,'ok')
+    $('#mask').classList.remove('show')
+    $('#fCallback').value='';pendingVerifier=null
+    await refresh()
+  }catch(e){toast('✗ '+e.message,'err')}
+  b.disabled=false;b.textContent='Kết nối tài khoản'
 }
 
 $('#saveCfg').onclick=()=>act('/antigravity/api/config',{cooldownMinutes:Number($('#cfgCd').value)||30},'Đã lưu cấu hình')
