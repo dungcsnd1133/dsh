@@ -1,5 +1,12 @@
 # DSH
 
+## Menu model và hiển thị code — 04/11/2026
+
+[Bản sửa menu model trên điện thoại](ops/mobile-model-menu/README.md) tránh
+tự bật bàn phím, mở rộng danh sách và giữ menu trong vùng nhìn thấy khi tìm
+kiếm. Đã tắt `dsh-inline-diff` trên web để các thay đổi code nằm trong hàng
+thu gọn, bấm mới mở chi tiết.
+
 ## Tự phục hồi Railway và media — 04/11/2026
 
 [Bộ giám sát DSH và Cloudflare Tunnel](ops/reliability/README.md) chạy lại tiến
