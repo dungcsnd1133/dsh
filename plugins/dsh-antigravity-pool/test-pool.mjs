@@ -42,6 +42,7 @@ const credentialsFile = path.join(tmp, '.credentials.yaml')
 const core = await import(path.join(pluginDir, 'pool-core.mjs'))
 core.setFetchImpl(fakeFetch)
 core.configurePaths({ stateDir, credentialsFile })
+core.configureOAuthClientFile(path.join(stateDir, 'oauth-client.json'))
 
 // seed a .credentials.yaml like a real DSH home, to test bootstrap
 fs.writeFileSync(credentialsFile, yaml.stringify({
@@ -287,6 +288,60 @@ await test('auth/exchange rejects empty/garbage input before hitting Google', as
   assert.ok(calls.length > before, 'non-empty garbage forwarded to token endpoint (Google rejects it there)')
 })
 
+await test('oauth-client can be saved to file when env is absent', async () => {
+  const savedId = process.env.ANTIGRAVITY_CLIENT_ID
+  const savedSecret = process.env.ANTIGRAVITY_CLIENT_SECRET
+  delete process.env.ANTIGRAVITY_CLIENT_ID
+  delete process.env.ANTIGRAVITY_CLIENT_SECRET
+
+  // before saving: not configured
+  let st = (await call('GET', '/antigravity/api/status')).json
+  assert.equal(st.configured, false)
+  assert.equal(st.source, 'none')
+
+  // invalid id rejected
+  const bad = await call('POST', '/antigravity/api/oauth-client', { clientId: 'short', clientSecret: 'x' })
+  assert.equal(bad.status, 400)
+
+  // valid id+secret persisted
+  const ok = await call('POST', '/antigravity/api/oauth-client', {
+    clientId: '999999-test.apps.googleusercontent.com',
+    clientSecret: 'GOCSPX-test-secret',
+  })
+  assert.equal(ok.status, 200)
+  assert.equal(ok.json.source, 'file')
+
+  const file = path.join(stateDir, 'oauth-client.json')
+  assert.ok(fs.existsSync(file), 'oauth-client.json written')
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'file is 0600')
+  const stored = JSON.parse(fs.readFileSync(file, 'utf8'))
+  assert.equal(stored.clientId, '999999-test.apps.googleusercontent.com')
+
+  // status now reflects file source, secret never echoed
+  st = (await call('GET', '/antigravity/api/status')).json
+  assert.equal(st.configured, true)
+  assert.equal(st.source, 'file')
+  assert.ok(!JSON.stringify(st).includes('GOCSPX'), 'status never leaks the secret')
+
+  // auth flow works from the file-stored client
+  const start = await call('POST', '/antigravity/api/auth/start', {})
+  assert.equal(start.status, 200)
+  assert.ok(start.json.authUrl.includes('999999-test.apps.googleusercontent.com'))
+
+  // env overrides file when both exist
+  process.env.ANTIGRAVITY_CLIENT_ID = '888888-env.apps.googleusercontent.com'
+  process.env.ANTIGRAVITY_CLIENT_SECRET = 'GOCSPX-env-secret'
+  st = (await call('GET', '/antigravity/api/status')).json
+  assert.equal(st.source, 'env')
+
+  // clearing removes the file
+  await call('DELETE', '/antigravity/api/oauth-client')
+  assert.ok(!fs.existsSync(file), 'oauth-client.json removed')
+
+  process.env.ANTIGRAVITY_CLIENT_ID = savedId
+  process.env.ANTIGRAVITY_CLIENT_SECRET = savedSecret
+})
+
 await test('UI page renders from ui.html (control room)', async () => {
   const resPromise = fakeRes()
   await handler(fakeReq('GET', '/antigravity'), resPromise)
@@ -297,6 +352,10 @@ await test('UI page renders from ui.html (control room)', async () => {
   assert.match(html, /\/antigravity\/api\/pool/, 'UI gọi API pool')
   assert.match(html, /setInterval/, 'UI có auto-refresh')
   assert.match(html, /auth\/start/, 'UI có luồng link auth')
+  assert.match(html, /oauth-client/, 'UI có form OAuth client')
+  assert.match(html, /fClientSecret/, 'UI nhập được client secret')
+  assert.ok(!/fAccess|fRefresh|Dán token/.test(html), 'UI không còn nhập token tay')
+  assert.match(html, /class="n"/, 'badge bước dùng class riêng (hết chồng chữ)')
 })
 
 await test('unknown api path returns 404 JSON', async () => {

@@ -52,15 +52,16 @@ trên máy khác). Bản plugin tách hardcoded path ra `config`/env và thêm f
            credentialsFile: /data/home/.credentials.yaml
    ```
 
-4. Set biến môi trường (không commit giá trị thật):
+4. Cấu hình OAuth client — **nhập trong UI**, không cần sửa biến môi trường:
 
-   ```sh
-   export ANTIGRAVITY_CLIENT_ID="…apps.googleusercontent.com"
-   export ANTIGRAVITY_CLIENT_SECRET="GOCSPX-…"
-   ```
+   Mở `/antigravity` → bấm banner đỏ hoặc **+ Thêm tài khoản** → dán
+   `CLIENT ID` + `CLIENT SECRET` (tạo OAuth client loại *Desktop app* tại
+   Google Cloud Console, redirect URI `http://localhost:51121/oauth-callback`).
+   Plugin lưu vào `<stateDir>/oauth-client.json` với mode `0600` trên volume —
+   không nằm trong git.
 
-   Tạo OAuth client tại Google Cloud Console (loại *Desktop app*), redirect URI
-   `http://localhost:51121/oauth-callback`.
+   Biến môi trường `ANTIGRAVITY_CLIENT_ID` / `ANTIGRAVITY_CLIENT_SECRET` vẫn
+   được ưu tiên nếu có (tiện cho deploy tạm), nhưng không bắt buộc.
 5. Khởi động lại DSH khi các phiên đã rảnh.
 
 ## Trang quản lý & API
@@ -74,7 +75,7 @@ Mở **`/antigravity`** trong browser của DSH — "control room" dark dashboar
 - Nút thao tác ngay trên thẻ: **Chọn / Test / Reset / Gỡ**; modal thêm tài khoản
   (email, access, refresh, project, expires)
 - Nhật ký pool dạng stream (info/auth/quota/error), auto-refresh 5 giây
-- Banner cảnh báo khi thiếu `ANTIGRAVITY_CLIENT_ID`/`ANTIGRAVITY_CLIENT_SECRET`
+- Banner đỏ khi chưa có OAuth client — bấm vào là mở form nhập ngay
 - Giao diện tự chứa 100% (`ui.html`) — không CDN, không font/icon ngoài;
   sửa `ui.html` là có tác dụng ngay, không cần restart
 
@@ -97,8 +98,9 @@ Mở **`/antigravity`** trong browser của DSH — "control room" dark dashboar
 
 ## Bảo mật
 
-- `ANTIGRAVITY_CLIENT_ID` / `ANTIGRAVITY_CLIENT_SECRET` **chỉ từ env** — không
-  hard-code, không commit. `.env` đã bị `.gitignore` ở gốc repo.
+- OAuth client nhập từ UI được lưu ở `<stateDir>/oauth-client.json` mode `0600`
+  (ngoài git, trên volume). Env `ANTIGRAVITY_CLIENT_ID/SECRET` vẫn được ưu tiên
+  nếu có. Không hard-code, không commit. `.env` đã bị `.gitignore` ở gốc repo.
 - Access/refresh token của các tài khoản chỉ nằm trong `antigravity-pool.json`
   (mode `0600`) và `.credentials.yaml` ngoài stateDir — không bao giờ xuất hiện
   trong API view hay log.

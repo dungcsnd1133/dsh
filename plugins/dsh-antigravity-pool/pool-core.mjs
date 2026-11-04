@@ -29,14 +29,80 @@ export function getFetch() {
   return fetchImpl;
 }
 
-// OAuth client credentials come from the environment only, read lazily so
-// tests can set/unset them per run. Never hard-coded in this repository.
+// OAuth client credentials: environment variables take precedence, then a
+// local oauth-client.json (mode 0600) saved from the UI. The file keeps the
+// secret out of git and out of Railway variables; env still wins so deploys
+// can override without editing the volume.
+let OAUTH_CLIENT_FILE = '';
+
+export function configureOAuthClientFile(file) {
+  OAUTH_CLIENT_FILE = file || '';
+}
+
+function readStoredOAuthClient() {
+  if (!OAUTH_CLIENT_FILE || !fs.existsSync(OAUTH_CLIENT_FILE)) return {};
+  try {
+    const doc = JSON.parse(fs.readFileSync(OAUTH_CLIENT_FILE, 'utf8'));
+    return {
+      clientId: typeof doc.clientId === 'string' ? doc.clientId : '',
+      clientSecret: typeof doc.clientSecret === 'string' ? doc.clientSecret : '',
+    };
+  } catch {
+    return {};
+  }
+}
+
+// Read the effective OAuth client. Never log or return the secret to clients.
 export function readAntigravityEnv() {
-  return {
+  const env = {
     clientId: process.env.ANTIGRAVITY_CLIENT_ID ?? '',
     clientSecret: process.env.ANTIGRAVITY_CLIENT_SECRET ?? '',
   };
+  const stored = readStoredOAuthClient();
+  return {
+    clientId: env.clientId || stored.clientId || '',
+    clientSecret: env.clientSecret || stored.clientSecret || '',
+  };
 }
+
+// Where the current credentials came from, for the status endpoint.
+export function oauthClientSource() {
+  const env = {
+    clientId: process.env.ANTIGRAVITY_CLIENT_ID ?? '',
+    clientSecret: process.env.ANTIGRAVITY_CLIENT_SECRET ?? '',
+  };
+  if (env.clientId && env.clientSecret) return 'env';
+  const stored = readStoredOAuthClient();
+  if (stored.clientId && stored.clientSecret) return 'file';
+  return 'none';
+}
+
+// Persist an OAuth client to the 0600 JSON file (UI "cấu hình OAuth" form).
+export function saveOAuthClient({ clientId, clientSecret }) {
+  if (!OAUTH_CLIENT_FILE) {
+    throw new Error('[AntigravityPool] oauth client file path is not configured');
+  }
+  const id = String(clientId || '').trim();
+  const secret = String(clientSecret || '').trim();
+  if (!id || !secret) throw new Error('clientId và clientSecret đều bắt buộc');
+  if (!/\.apps\.googleusercontent\.com$/.test(id) && id.length < 20) {
+    throw new Error('clientId không hợp lệ — phải có dạng …apps.googleusercontent.com');
+  }
+  fs.mkdirSync(path.dirname(OAUTH_CLIENT_FILE), { recursive: true });
+  fs.writeFileSync(OAUTH_CLIENT_FILE, JSON.stringify({ clientId: id, clientSecret: secret }, null, 2), { mode: 0o600 });
+  try {
+    fs.chmodSync(OAUTH_CLIENT_FILE, 0o600);
+  } catch {
+    // best effort on filesystems without chmod
+  }
+  return { ok: true };
+}
+
+export function clearOAuthClient() {
+  if (OAUTH_CLIENT_FILE && fs.existsSync(OAUTH_CLIENT_FILE)) fs.rmSync(OAUTH_CLIENT_FILE);
+  return { ok: true };
+}
+
 export function isConfigured() {
   const { clientId, clientSecret } = readAntigravityEnv();
   return clientId.length > 0 && clientSecret.length > 0;

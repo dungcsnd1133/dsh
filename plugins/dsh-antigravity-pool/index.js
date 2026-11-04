@@ -18,6 +18,10 @@ import {
   buildAuthUrl,
   makePkcePair,
   exchangeCallback,
+  configureOAuthClientFile,
+  oauthClientSource,
+  saveOAuthClient,
+  clearOAuthClient,
   ANTIGRAVITY_AUTH_URL,
   ANTIGRAVITY_TOKEN_URL,
   ANTIGRAVITY_REDIRECT_URI,
@@ -61,6 +65,8 @@ export function apply(ctx, config) {
   if (!stateDir) throw new Error('[dsh-antigravity-pool] stateDir is required in cordis.patch.yml config')
   const credentialsFile = config?.credentialsFile ? String(config.credentialsFile) : undefined
   configurePaths({ stateDir, credentialsFile })
+  // OAuth client can be typed into the UI; stored 0600 beside pool state.
+  configureOAuthClientFile(join(stateDir, 'oauth-client.json'))
 
   const json = (res, status, payload) => {
     const body = JSON.stringify(payload)
@@ -93,13 +99,32 @@ export function apply(ctx, config) {
           const env = readAntigravityEnv()
           json(res, 200, {
             configured: isConfigured(),
-            clientIdMasked: env.clientId ? env.clientId.slice(0, 6) + '…' : '',
+            source: oauthClientSource(),
+            clientIdMasked: env.clientId ? env.clientId.slice(0, 12) + '…' : '',
             authUrl: ANTIGRAVITY_AUTH_URL,
             tokenUrl: ANTIGRAVITY_TOKEN_URL,
             redirectUri: ANTIGRAVITY_REDIRECT_URI,
             scopes: ANTIGRAVITY_SCOPES,
             defaultProjectId: ANTIGRAVITY_DEFAULT_PROJECT_ID,
           })
+          return
+        }
+
+        // Save / clear the OAuth client from the UI (stored 0600, never echoed back)
+        if (pathName === '/antigravity/api/oauth-client' && req.method === 'POST') {
+          const body = await readBody(req)
+          try {
+            saveOAuthClient({ clientId: body.clientId, clientSecret: body.clientSecret })
+            json(res, 200, { ok: true, source: oauthClientSource() })
+          } catch (err) {
+            json(res, 400, { error: err instanceof Error ? err.message : String(err) })
+          }
+          return
+        }
+
+        if (pathName === '/antigravity/api/oauth-client' && req.method === 'DELETE') {
+          clearOAuthClient()
+          json(res, 200, { ok: true, source: oauthClientSource() })
           return
         }
 

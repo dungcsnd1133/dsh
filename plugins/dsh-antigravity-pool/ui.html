@@ -123,10 +123,17 @@
   .tab .rec{font-size:9px;background:var(--okbg);color:var(--ok);border-radius:99px;padding:1px 6px;margin-left:3px;text-transform:uppercase;letter-spacing:.4px}
   .tabpane{display:none}
   .tabpane.on{display:block}
-  .steps{display:flex;flex-direction:column;gap:8px;margin-bottom:15px}
-  .step{display:flex;gap:9px;align-items:flex-start;font-size:12px;color:var(--tx2);line-height:1.45}
-  .step b{flex:none;width:18px;height:18px;border-radius:50%;background:var(--accbg);color:var(--acc);display:grid;place-items:center;font-size:10.5px;margin-top:1px}
-  .step code{font-family:var(--mono);font-size:10.5px;background:rgba(255,255,255,.06);padding:1px 5px;border-radius:4px}
+  /* BUGFIX: badge số bước dùng class riêng .step .n — trước đây .step b
+     bắt nhầm thẻ <b> trong câu chữ, gây chồng chữ trên mobile. */
+  .steps{display:flex;flex-direction:column;gap:9px;margin-bottom:15px}
+  .step{display:flex;gap:10px;align-items:flex-start;font-size:12px;color:var(--tx2);line-height:1.5}
+  .step .n{flex:none;width:19px;height:19px;border-radius:50%;background:var(--accbg);color:var(--acc);display:grid;place-items:center;font-size:10.5px;font-weight:700;margin-top:1px;font-family:var(--mono)}
+  .step .t{flex:1;min-width:0}
+  .step .t b{color:var(--tx);font-weight:600}
+  .step code{font-family:var(--mono);font-size:10.5px;background:rgba(255,255,255,.06);padding:1px 5px;border-radius:4px;word-break:break-all}
+  .setupnote{background:var(--panel2);border:1px solid var(--line2);border-left:3px solid var(--acc);border-radius:8px;padding:11px 13px;margin-bottom:14px;display:flex;flex-direction:column;gap:4px}
+  .setupnote b{font-size:12px;color:var(--tx)}
+  .setupnote span{font-size:11.5px;color:var(--tx2);line-height:1.5}
   .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--panel2);border:1px solid var(--line2);border-radius:9px;padding:10px 18px;font-size:12.5px;opacity:0;transition:all .25s;z-index:60;max-width:90vw}
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
   .toast.err{border-color:var(--err);color:var(--err)}
@@ -193,59 +200,48 @@
   <div class="modal">
     <header><h3>Thêm / cập nhật tài khoản Antigravity</h3></header>
     <div class="mbd">
-      <div class="tabs">
-        <button class="tab on" data-tab="link">🔗 Link Google <span class="rec">khuyến nghị</span></button>
-        <button class="tab" data-tab="manual">📋 Dán token</button>
-      </div>
-
-      <!-- TAB 1: link auth -->
+      <!-- Chỉ dùng luồng auth: không nhập token tay -->
       <div id="tab-link" class="tabpane on">
-        <div class="steps">
-          <div class="step"><b>1</b><span>Bấm nút dưới → Google mở tab mới, chọn tài khoản, đồng ý hết</span></div>
-          <div class="step"><b>2</b><span>Browser nhảy về <code>localhost:51121/oauth-callback?code=…</code> (trang lỗi là bình thường) — <b>copy nguyên URL trên thanh địa chỉ</b></span></div>
-          <div class="step"><b>3</b><span>Dán URL vào ô dưới → Lưu. Plugin tự đổi code lấy token</span></div>
+        <div id="oauthSetup">
+          <div class="setupnote">
+            <b>Bước 0 — OAuth client</b>
+            <span>Tạo OAuth client loại <b>Desktop app</b> trong Google Cloud Console, rồi dán Client ID + Secret vào đây. Lưu 1 lần là dùng cho mọi tài khoản.</span>
+          </div>
+          <div class="field">
+            <label>CLIENT ID *</label>
+            <input id="fClientId" placeholder="123456789-abc123.apps.googleusercontent.com" autocomplete="off">
+          </div>
+          <div class="field">
+            <label>CLIENT SECRET *</label>
+            <input id="fClientSecret" type="password" placeholder="GOCSPX-…" autocomplete="off">
+            <div class="hint">Lưu vào volume (0600), không đẩy lên git</div>
+          </div>
+          <button class="btn big primary" id="saveOauth" style="width:100%">💾 Lưu OAuth client</button>
         </div>
-        <div class="field">
-          <label>EMAIL (tuỳ chọn — gắn tên cho tài khoản)</label>
-          <input id="fEmailL" placeholder="ten@gmail.com">
-        </div>
-        <button class="btn big primary" id="openAuth" style="width:100%">🔗 Mở trang đăng nhập Google</button>
-        <div class="field" style="margin-top:14px">
-          <label>URL CALLBACK (dán nguyên URL có ?code=… )</label>
-          <input id="fCallback" placeholder="http://localhost:51121/oauth-callback?code=4%2F0Axxx…&scope=…">
-          <div class="hint" id="cbHint">Chưa có verifier — bấm nút trên trước</div>
-        </div>
-        <div class="field">
-          <label>PROJECT ID (tuỳ chọn)</label>
-          <input id="fProjL" placeholder="rising-fact-p41fc">
-        </div>
-        <button class="btn big primary" id="mSaveLink" style="width:100%">✓ Lưu vào pool</button>
-      </div>
 
-      <!-- TAB 2: manual tokens -->
-      <div id="tab-manual" class="tabpane">
-        <div class="field">
-          <label>EMAIL (tuỳ chọn — định danh trong pool)</label>
-          <input id="fEmail" placeholder="ten@gmail.com">
-          <div class="hint">Bỏ trống sẽ tự đặt account_N@antigravity</div>
+        <div id="authFlow" style="display:none">
+          <div class="steps">
+            <div class="step"><span class="n">1</span><span class="t">Bấm nút dưới → Google mở tab mới, chọn tài khoản, đồng ý hết</span></div>
+            <div class="step"><span class="n">2</span><span class="t">Browser nhảy về <code>localhost:51121/oauth-callback?code=…</code> (trang lỗi là bình thường) — <b>copy nguyên URL trên thanh địa chỉ</b></span></div>
+            <div class="step"><span class="n">3</span><span class="t">Dán URL vào ô dưới → Lưu. Plugin tự đổi code lấy token</span></div>
+          </div>
+          <div class="field">
+            <label>EMAIL (tuỳ chọn — gắn tên cho tài khoản)</label>
+            <input id="fEmailL" placeholder="ten@gmail.com">
+          </div>
+          <button class="btn big primary" id="openAuth" style="width:100%">🔗 Mở trang đăng nhập Google</button>
+          <div class="field" style="margin-top:14px">
+            <label>URL CALLBACK (dán nguyên URL có ?code=… )</label>
+            <input id="fCallback" placeholder="http://localhost:51121/oauth-callback?code=4%2F0Axxx…&scope=…">
+            <div class="hint" id="cbHint">Chưa có verifier — bấm nút trên trước</div>
+          </div>
+          <div class="field">
+            <label>PROJECT ID (tuỳ chọn)</label>
+            <input id="fProjL" placeholder="rising-fact-p41fc">
+          </div>
+          <button class="btn big primary" id="mSaveLink" style="width:100%">✓ Lưu vào pool</button>
+          <button class="btn" id="changeOauth" style="width:100%;margin-top:9px">Đổi OAuth client khác</button>
         </div>
-        <div class="field">
-          <label>ACCESS TOKEN *</label>
-          <input id="fAccess" placeholder="ya29.…">
-        </div>
-        <div class="field">
-          <label>REFRESH TOKEN *</label>
-          <input id="fRefresh" placeholder="1//0g…">
-        </div>
-        <div class="field">
-          <label>PROJECT ID (tuỳ chọn)</label>
-          <input id="fProj" placeholder="rising-fact-p41fc">
-        </div>
-        <div class="field">
-          <label>HẾT HẠN (tuỳ chọn — ms epoch)</label>
-          <input id="fExpires" placeholder="để trống = +1 giờ">
-        </div>
-        <button class="btn big primary" id="mSave" style="width:100%">✓ Lưu vào pool</button>
       </div>
     </div>
     <div class="mfoot">
@@ -273,10 +269,13 @@ async function api(path,opts){
 
 function envBanner(status,pool){
   const el=$('#env')
+  const src=status.source||'none'
   if(status.configured){
-    el.innerHTML=`<div class="env good"><span>✓</span> OAuth client đã cấu hình qua biến môi trường <code>${esc(status.clientIdMasked||'')}</code></div>`
+    const where=src==='env'?'biến môi trường':'volume (nhập trong UI)'
+    el.innerHTML=`<div class="env good"><span>✓</span> OAuth client đã cấu hình qua ${where} <code>${esc(status.clientIdMasked||'')}</code></div>`
   }else{
-    el.innerHTML=`<div class="env bad"><span>✕</span> Thiếu biến môi trường — set <code>ANTIGRAVITY_CLIENT_ID</code> và <code>ANTIGRAVITY_CLIENT_SECRET</code> rồi restart, nếu không refresh token sẽ lỗi khi token hết hạn.</div>`
+    el.innerHTML=`<div class="env bad" id="envSetup" style="cursor:pointer"><span>✕</span> Chưa có OAuth client — <b>bấm vào đây để nhập</b> (hoặc set <code>ANTIGRAVITY_CLIENT_ID</code> + <code>ANTIGRAVITY_CLIENT_SECRET</code>)</div>`
+    $('#envSetup').onclick=()=>{syncOauthPane();oauthReady=false;$('#oauthSetup').style.display='block';$('#authFlow').style.display='none';$('#mask').classList.add('show')}
   }
 }
 
@@ -384,6 +383,7 @@ async function refresh(){
       api('/antigravity/api/pool'),
       api('/antigravity/api/status'),
     ])
+    oauthReady=Boolean(status.configured)
     renderPool(pool,status)
     $('#dot').className='dot'
     $('#tick').textContent=new Date().toLocaleTimeString('vi-VN')
@@ -395,30 +395,56 @@ async function refresh(){
 
 // add-account modal
 let authSession=null // {codeVerifier, redirectUri}
-$('#addBtn').onclick=()=>$('#mask').classList.add('show')
+let oauthReady=false
+$('#addBtn').onclick=()=>{syncOauthPane();$('#mask').classList.add('show')}
 $('#mCancel').onclick=()=>$('#mask').classList.remove('show')
 $('#mask').onclick=(e)=>{if(e.target===$('#mask'))$('#mask').classList.remove('show')}
 
-// tabs
-document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
-  document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on',x===t))
-  document.querySelectorAll('.tabpane').forEach(p=>p.classList.toggle('on',p.id==='tab-'+t.dataset.tab))
-})
+// Chỉ một luồng: nếu chưa có OAuth client thì hiện form nhập, có rồi thì hiện flow đăng nhập
+function syncOauthPane(){
+  $('#oauthSetup').style.display=oauthReady?'none':'block'
+  $('#authFlow').style.display=oauthReady?'block':'none'
+}
 
-// TAB LINK: build auth URL server-side (env client) then open
+// Lưu OAuth client vào volume (0600) — không cần set env Railway
+$('#saveOauth').onclick=async()=>{
+  const id=$('#fClientId').value.trim(), secret=$('#fClientSecret').value.trim()
+  if(!id||!secret)return toast('✗ Cần cả Client ID và Client Secret','err')
+  const b=$('#saveOauth');b.disabled=true
+  try{
+    await api('/antigravity/api/oauth-client',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({clientId:id,clientSecret:secret})})
+    toast('✓ Đã lưu OAuth client','ok')
+    oauthReady=true
+    $('#fClientId').value='';$('#fClientSecret').value=''
+    syncOauthPane()
+    await refresh()
+  }catch(e){toast('✗ '+e.message,'err')}
+  b.disabled=false
+}
+
+$('#changeOauth').onclick=async()=>{
+  if(!confirm('Xoá OAuth client đã lưu và nhập client khác?'))return
+  try{
+    await api('/antigravity/api/oauth-client',{method:'DELETE'})
+    oauthReady=false;syncOauthPane();toast('Đã xoá OAuth client','ok');await refresh()
+  }catch(e){toast('✗ '+e.message,'err')}
+}
+
+// Bước 1: tạo link đăng nhập Google (PKCE)
 $('#openAuth').onclick=async()=>{
   const b=$('#openAuth');b.disabled=true
   try{
     const r=await api('/antigravity/api/auth/start',{method:'POST',headers:{'content-type':'application/json'},body:'{}'})
     authSession={codeVerifier:r.codeVerifier,redirectUri:r.redirectUri}
-    $('#cbHint').innerHTML='✓ Verifier sẵn sàng — đăng nhập xong dán URL vào ô dưới'
+    $('#cbHint').textContent='✓ Verifier sẵn sàng — đăng nhập xong dán URL vào ô dưới'
     $('#cbHint').style.color='var(--ok)'
     window.open(r.authUrl,'_blank')
     toast('✓ Đã mở Google — chọn tài khoản và đồng ý','ok')
-  }catch(e){toast('✗ '+e.message+' — thiếu env OAuth?','err')}
+  }catch(e){toast('✗ '+e.message,'err')}
   b.disabled=false
 }
 
+// Bước 2: dán URL callback → đổi code lấy token
 $('#mSaveLink').onclick=async()=>{
   const cb=$('#fCallback').value.trim()
   if(!cb)return toast('✗ Dán URL callback có ?code=… trước','err')
@@ -436,21 +462,6 @@ $('#mSaveLink').onclick=async()=>{
     await refresh()
   }catch(e){toast('✗ '+e.message,'err')}
   b.disabled=false
-}
-
-$('#mSave').onclick=async()=>{
-  const access=$('#fAccess').value.trim(), refreshT=$('#fRefresh').value.trim()
-  if(!access||!refreshT)return toast('✗ Cần access + refresh token','err')
-  const body={email:$('#fEmail').value.trim()||undefined,access,refresh:refreshT}
-  const proj=$('#fProj').value.trim();if(proj)body.projectId=proj
-  const exp=$('#fExpires').value.trim();if(exp)body.expires=Number(exp)
-  try{
-    await api('/antigravity/api/account',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)})
-    toast('✓ Đã lưu tài khoản vào pool','ok')
-    $('#mask').classList.remove('show')
-    ;['#fEmail','#fAccess','#fRefresh','#fProj','#fExpires'].forEach(s=>$(s).value='')
-    await refresh()
-  }catch(e){toast('✗ '+e.message,'err')}
 }
 
 $('#saveCfg').onclick=()=>act('/antigravity/api/config',{cooldownMinutes:Number($('#cfgCd').value)||30},'Đã lưu cấu hình')
