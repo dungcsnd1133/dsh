@@ -2,5 +2,8 @@
     - id: dsh-antigravity-pool
       name: '@local/dsh-antigravity-pool'
       config:
-        stateDir: /data/home/state/superagent/antigravity-pool
-        credentialsFile: /data/home/.credentials.yaml
+        # Đường dẫn tùy máy. Ví dụ cho Linux DSH volume:
+        # stateDir: /data/.dsh/state/superagent/antigravity-pool
+        # credentialsFile: /data/.dsh/.credentials.yaml
+        stateDir: ""
+        credentialsFile: ""
