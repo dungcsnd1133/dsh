@@ -10,6 +10,7 @@ window.__ModuleLoader__.load({
       authUrl: '/api/antigravity.authUrl',
       exchange: '/api/antigravity.exchange',
       action: '/api/antigravity.action',
+      quota: '/api/antigravity.quota',
     }
 
     const DICT = {
@@ -49,6 +50,30 @@ window.__ModuleLoader__.load({
         saveConfig: 'Lưu cấu hình',
         saved: 'Đã lưu.',
         activity: 'Hoạt động gần đây',
+        quota: 'Quota',
+        quotaLeft: 'Còn {percent}%',
+        quotaUnknown: 'Chưa đo',
+        quotaChecking: 'Đang đo quota…',
+        quotaRefresh: 'Đo lại quota',
+        quotaAll: 'Đo tất cả',
+        resetAt: 'Đặt lại lúc',
+        bottleneck: 'Model thắt cổ chai: {name}',
+        quotaHint: 'Phần trăm thấp nhất trong các model chat — model chạm giới hạn trước.',
+        measured: 'Đo lúc {time}',
+        details: 'Chi tiết tài khoản',
+        switchTo: 'Chuyển sang',
+        quota: 'Quota',
+        quotaLeft: '{percent}% left',
+        quotaUnknown: 'Not measured',
+        quotaChecking: 'Measuring quota…',
+        quotaRefresh: 'Re-measure quota',
+        quotaAll: 'Measure all',
+        resetAt: 'Resets at',
+        bottleneck: 'Bottleneck model: {name}',
+        quotaHint: 'Lowest share across chat models — the one that hits the limit first.',
+        measured: 'Measured {time}',
+        details: 'Account details',
+        switchTo: 'Switch to',
         notConfigured:
           'Host chưa có ANTIGRAVITY_CLIENT_ID / ANTIGRAVITY_CLIENT_SECRET. Thêm hai biến này vào môi trường của tiến trình DSH rồi khởi động lại.',
         failed: 'Không tải được danh sách: {message}',
@@ -91,6 +116,18 @@ window.__ModuleLoader__.load({
         saveConfig: 'Save settings',
         saved: 'Saved.',
         activity: 'Recent activity',
+        quota: 'Quota',
+        quotaLeft: '{percent}% left',
+        quotaUnknown: 'Not measured',
+        quotaChecking: 'Measuring quota…',
+        quotaRefresh: 'Re-measure quota',
+        quotaAll: 'Measure all',
+        resetAt: 'Resets at',
+        bottleneck: 'Bottleneck model: {name}',
+        quotaHint: 'Lowest share across chat models — the one that hits the limit first.',
+        measured: 'Measured {time}',
+        details: 'Account details',
+        switchTo: 'Switch to',
         notConfigured:
           'This host has no ANTIGRAVITY_CLIENT_ID / ANTIGRAVITY_CLIENT_SECRET. Add both to the DSH process environment and restart.',
         failed: 'Could not load accounts: {message}',
@@ -112,6 +149,25 @@ window.__ModuleLoader__.load({
 .agp-btn-sm{height:28px;padding:0 10px;font-size:12px}
 .agp-btn-danger{color:#d92c20;border-color:rgba(217,44,32,.35)}
 .agp-list{display:flex;flex-direction:column;gap:8px}
+/* ===== quota meter ===== */
+.agp-quota{display:flex;flex-direction:column;gap:5px;min-width:0}
+.agp-quota-head{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;font-size:12px;min-width:0}
+.agp-quota-num{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;font-size:15px;line-height:18px}
+.agp-quota-num.high{color:#16a34a}
+.agp-quota-num.mid{color:#d97706}
+.agp-quota-num.low{color:#d92c20}
+.agp-quota-num.unknown{color:var(--dsw-alias-label-tertiary,#8e8e93);font-weight:500;font-size:12px}
+.agp-quota-label{color:var(--dsw-alias-label-tertiary,#8e8e93)}
+.agp-bar{position:relative;height:6px;border-radius:99px;background:var(--dsw-alias-bg-skeleton,rgba(0,0,0,.08));overflow:hidden;min-width:0}
+.agp-bar-fill{position:absolute;left:0;top:0;bottom:0;border-radius:99px;transition:width .25s ease}
+.agp-bar-fill.high{background:#16a34a}
+.agp-bar-fill.mid{background:#d97706}
+.agp-bar-fill.low{background:#d92c20}
+.agp-bar-fill.unknown{background:var(--dsw-alias-border-l3,rgba(0,0,0,.2));width:100% !important;opacity:.35}
+.agp-quota-meta{font-size:11px;color:var(--dsw-alias-label-tertiary,#8e8e93);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;display:flex;gap:10px;flex-wrap:wrap;overflow-wrap:anywhere}
+.agp-details>summary{cursor:pointer;list-style:none;color:var(--dsw-alias-label-tertiary,#8e8e93);font-size:11px}
+.agp-details>summary::-webkit-details-marker{display:none}
+
 .agp-card{display:flex;flex-direction:column;gap:8px;min-width:0;padding:10px 12px;border:.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.10));border-radius:10px}
 .agp-card-active{border-color:rgba(22,163,74,.55);box-shadow:inset 0 0 0 .5px rgba(22,163,74,.35)}
 .agp-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
@@ -327,7 +383,80 @@ window.__ModuleLoader__.load({
      * @param props - account record, copy, and the action dispatcher.
      * @returns the row element tree.
      */
-    function AccountCard({ account, t, running, act }) {
+    /**
+     * Resolve the health class for a percentage.
+     * @param percent - remaining share, 0..100, or null when unmeasured.
+     * @returns CSS class suffix used by both the number and the bar.
+     */
+    function quotaClass(percent) {
+      if (typeof percent !== 'number') return 'unknown'
+      if (percent >= 60) return 'high'
+      if (percent >= 25) return 'mid'
+      return 'low'
+    }
+
+    /**
+     * One account's quota meter: headline percentage, bar, and reset time.
+     * @param props - cached quota record, copy, and the refresh callback.
+     * @returns the meter element tree.
+     */
+    function QuotaMeter({ quota, t, onRefresh, busy }) {
+      const percent = quota && typeof quota.percent === 'number' ? quota.percent : null
+      const kind = quotaClass(percent)
+      const reset = quota && quota.resetTime ? new Date(quota.resetTime) : null
+      const resetText =
+        reset && !Number.isNaN(reset.getTime())
+          ? `${t.resetAt} ${reset.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`
+          : null
+      const measured =
+        quota && quota.checkedAt
+          ? fill(t.measured, {
+              time: new Date(quota.checkedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }),
+            })
+          : null
+
+      return h(
+        'div',
+        { className: 'agp-quota' },
+        h(
+          'div',
+          { className: 'agp-quota-head' },
+          percent === null
+            ? h('span', { className: 'agp-quota-num unknown' }, quota && quota.message ? quota.message : t.quotaUnknown)
+            : h('span', { className: `agp-quota-num ${kind}` }, fill(t.quotaLeft, { percent })),
+          h('span', { className: 'agp-quota-label' }, t.quota),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'agp-btn agp-btn-sm',
+              style: { marginLeft: 'auto', height: '24px', padding: '0 8px', fontSize: '11px' },
+              disabled: busy,
+              onClick: onRefresh,
+              title: t.quotaHint,
+            },
+            busy ? t.quotaChecking : t.quotaRefresh,
+          ),
+        ),
+        h(
+          'div',
+          { className: 'agp-bar' },
+          h('div', {
+            className: `agp-bar-fill ${kind}`,
+            style: percent === null ? undefined : { width: `${Math.max(0, Math.min(100, percent))}%` },
+          }),
+        ),
+        h(
+          'div',
+          { className: 'agp-quota-meta' },
+          quota && quota.bottleneck ? h('span', null, fill(t.bottleneck, { name: quota.bottleneck })) : null,
+          resetText ? h('span', null, resetText) : null,
+          measured ? h('span', null, measured) : null,
+        ),
+      )
+    }
+
+    function AccountCard({ account, t, running, act, onRefreshQuota, quotaBusy }) {
       const badge = account.isActive
         ? h('span', { className: 'agp-badge agp-badge-on' }, t.active)
         : account.status === 'cooldown'
@@ -346,14 +475,14 @@ window.__ModuleLoader__.load({
           badge,
           account.label ? h('span', { className: 'agp-meta' }, account.label) : null,
         ),
-        h(
-          'div',
-          { className: 'agp-meta' },
-          h('span', null, `${t.project}: ${account.projectId}`),
-          h('span', null, `${t.expiry}: ${dateText(account.expires)}`),
-          h('span', null, `${t.requests}: ${account.totalRequests}`),
-          h('span', null, `${t.quotaHits}: ${account.quotaHits}`),
-        ),
+        // Live quota is why someone opens this card, so it sits directly under
+        // the identity instead of behind a Test button.
+        h(QuotaMeter, {
+          quota: account.lastQuota,
+          t,
+          busy: quotaBusy === account.id,
+          onRefresh: () => onRefreshQuota(account),
+        }),
         account.lastError ? h('div', { className: 'agp-err' }, account.lastError) : null,
         h(
           'div',
@@ -363,13 +492,8 @@ window.__ModuleLoader__.load({
             : h(
                 'button',
                 { type: 'button', className: 'agp-btn agp-btn-sm', disabled: running, onClick: () => act('select', account) },
-                t.use,
+                t.switchTo,
               ),
-          h(
-            'button',
-            { type: 'button', className: 'agp-btn agp-btn-sm', disabled: running, onClick: () => act('test', account) },
-            t.test,
-          ),
           h(
             'button',
             { type: 'button', className: 'agp-btn agp-btn-sm', disabled: running, onClick: () => act('reset-quota', account) },
@@ -379,6 +503,19 @@ window.__ModuleLoader__.load({
             'button',
             { type: 'button', className: 'agp-btn agp-btn-sm agp-btn-danger', disabled: running, onClick: () => act('remove', account) },
             t.remove,
+          ),
+        ),
+        h(
+          'details',
+          { className: 'agp-details' },
+          h('summary', null, t.details),
+          h(
+            'div',
+            { className: 'agp-quota-meta', style: { marginTop: '4px' } },
+            h('span', null, `${t.project}: ${account.projectId}`),
+            h('span', null, `${t.expiry}: ${dateText(account.expires)}`),
+            h('span', null, `${t.requests}: ${account.totalRequests}`),
+            h('span', null, `${t.quotaHits}: ${account.quotaHits}`),
           ),
         ),
       )
@@ -396,6 +533,8 @@ window.__ModuleLoader__.load({
       const [adding, setAdding] = useState(false)
       const [running, setRunning] = useState(false)
       const [cooldown, setCooldown] = useState(30)
+      // Which account's quota is being measured right now ('all' for a sweep).
+      const [quotaBusy, setQuotaBusy] = useState(null)
       const mounted = useRef(true)
 
       useEffect(() => {
@@ -452,6 +591,65 @@ window.__ModuleLoader__.load({
         [t],
       )
 
+      /**
+       * Measure live quota for one account (or every account when omitted).
+       * @param account - account to probe; omitted means the whole pool.
+       */
+      const refreshQuota = useCallback(
+        async account => {
+          setQuotaBusy(account ? account.id : 'all')
+          setError('')
+          try {
+            const answer = await call(API.quota, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(account ? { id: account.id } : {}),
+            })
+            if (!mounted.current) return
+            const measured = new Map((answer.accounts || []).map(row => [row.id, row]))
+            setState(current => {
+              if (!current.pool) return current
+              const accounts = current.pool.accounts.map(row => {
+                const hit = measured.get(row.id)
+                if (!hit) return row
+                return {
+                  ...row,
+                  lastQuota: {
+                    percent: typeof hit.percent === 'number' ? hit.percent : null,
+                    bottleneck: hit.bottleneck ?? null,
+                    resetTime: hit.resetTime ?? null,
+                    checkedAt: answer.checkedAt ?? Date.now(),
+                    ok: hit.ok !== false,
+                    ...(hit.ok === false && hit.message ? { message: hit.message } : {}),
+                  },
+                }
+              })
+              return { ...current, pool: { ...current.pool, accounts } }
+            })
+          } catch (failure) {
+            if (!mounted.current) return
+            setError(fill(t.actionFailed, { message: failure instanceof Error ? failure.message : String(failure) }))
+          } finally {
+            if (mounted.current) setQuotaBusy(null)
+          }
+        },
+        [t],
+      )
+
+      // Measure once on open when no cached number exists (or it is older than
+      // ten minutes). Declared after refreshQuota: a useCallback is not hoisted.
+      const autoMeasured = useRef(false)
+      useEffect(() => {
+        const pool = state.pool
+        if (autoMeasured.current || !pool || pool.accounts.length === 0) return
+        const stale = pool.accounts.some(
+          account => !account.lastQuota || Date.now() - Number(account.lastQuota.checkedAt || 0) > 10 * 60 * 1000,
+        )
+        if (!stale) return
+        autoMeasured.current = true
+        refreshQuota()
+      }, [state.pool, refreshQuota])
+
       const persistConfig = useCallback(async () => {
         setRunning(true)
         setError('')
@@ -494,6 +692,11 @@ window.__ModuleLoader__.load({
           h(
             'div',
             { className: 'agp-row' },
+            h(
+              'button',
+              { type: 'button', className: 'agp-btn', onClick: () => refreshQuota(), disabled: running || quotaBusy === 'all' },
+              quotaBusy === 'all' ? t.quotaChecking : t.quotaAll,
+            ),
             h('button', { type: 'button', className: 'agp-btn', onClick: load, disabled: running }, t.retry),
             h(
               'button',
@@ -514,7 +717,17 @@ window.__ModuleLoader__.load({
             : h(
                 'div',
                 { className: 'agp-list' },
-                accounts.map(account => h(AccountCard, { key: account.id, account, t, running, act })),
+                accounts.map(account =>
+                  h(AccountCard, {
+                    key: account.id,
+                    account,
+                    t,
+                    running,
+                    act,
+                    quotaBusy,
+                    onRefreshQuota: refreshQuota,
+                  }),
+                ),
               ),
 
         pool

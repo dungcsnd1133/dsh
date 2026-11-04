@@ -4,8 +4,10 @@ Quản lý **xoay vòng nhiều tài khoản Antigravity** (Google OAuth) cho DS
 Khi một tài khoản chạm quota, pool tự chuyển sang tài khoản kế tiếp và cho tài khoản
 kia nghỉ `cooldownMinutes` phút rồi tự phục hồi.
 
-Phiên bản **2.2.0** — thêm thẻ quản lý trong **Settings → Models** của DSH,
-không thay thế trang `/antigravity` sẵn có.
+Phiên bản **2.8.0** — thêm **đồng hồ quota trực tiếp** cho từng tài khoản, ở cả
+trang `/antigravity` lẫn thẻ **Settings → Models**.
+Trang `/antigravity` vẫn là nơi thêm/xoá tài khoản, còn Settings chỉ bật/tắt,
+chọn model và ngân sách token.
 
 ## Kiến trúc
 
@@ -15,7 +17,7 @@ pool-core.mjs      → logic pool (kế thừa từ applet/antigravity-pool.mjs,
 settings-routes.mjs→ 4 route /api/antigravity.* sau fence xác thực của DSH
 client.js          → thẻ "Google Antigravity accounts" trong Settings → Models
 ui.html            → trang quản lý độc lập tại /antigravity
-test-pool.mjs      → 26 kiểm thử offline (fetch giả, không gọi Google)
+test-pool.mjs      → 39 kiểm thử offline (fetch giả, không gọi Google)
 ```
 
 Có **hai giao diện**, dùng chung một pool:
@@ -144,6 +146,33 @@ Bốn route của thẻ:
 
 Access/refresh token **không bao giờ** rời khỏi host: route status chỉ trả
 snapshot đã qua `getSanitizedPoolView()`.
+
+## Quota trực tiếp
+
+Mỗi tài khoản hiện **phần trăm quota còn lại** kèm thanh tiến trình, model thắt
+cổ chai và giờ reset. Số này lấy từ chính Google, không phải phỏng đoán.
+
+Cách đọc: Cloud Code Assist trả `quotaInfo.remainingFraction` cho từng model
+trong `fetchAvailableModels`. Phần trăm hiển thị là **mức thấp nhất** trong các
+model chat (`gemini-4-argon`, `gemini-3.8-flash`, `gemini-3-flash`,
+`gemini-3.1-flash*`) — vì một model cạn là đủ để trả 429, không phải mức trung bình.
+
+| Mức | Màu | Ý nghĩa |
+|---|---|---|
+| ≥ 60% | xanh | thoải mái |
+| 25–59% | cam | nên để ý |
+| < 25% | đỏ | sắp chạm giới hạn |
+
+Số đo được lưu vào `antigravity-pool.json` (`lastQuota`) nên lần mở sau hiện ngay.
+Trang tự đo lại khi số cũ hơn 10 phút; nút **Đo quota** / **Đo lại quota** ép đo
+một tài khoản, **Đo tất cả** đo cả pool.
+
+Hai route mới:
+
+| Route | Method | Việc |
+|---|---|---|
+| `/antigravity/api/quota` | GET, POST | Đo quota (trang quản lý) |
+| `/api/antigravity.quota` | GET, POST | Đo quota (thẻ Settings, sau xác thực) |
 
 ## Bảo mật
 

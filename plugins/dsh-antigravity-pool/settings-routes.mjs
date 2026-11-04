@@ -26,12 +26,14 @@ import {
   setActiveAccount,
   testAccountQuota,
   updatePoolConfig,
+  probeQuota,
 } from './pool-core.mjs'
 
 export const POOL_PATH = '/api/antigravity.pool'
 export const AUTH_URL_PATH = '/api/antigravity.authUrl'
 export const EXCHANGE_PATH = '/api/antigravity.exchange'
 export const ACTION_PATH = '/api/antigravity.action'
+export const QUOTA_PATH = '/api/antigravity.quota'
 
 const JSON_HEADERS = { 'cache-control': 'no-store' }
 
@@ -335,4 +337,28 @@ export function registerSettingsRoutes(ctx) {
     'antigravity-pool: settings action route',
   )
 
+  ctx.effect(
+    () =>
+      ctx.connection.fetch.register({
+        path: QUOTA_PATH,
+        methods: ['GET', 'POST'],
+        requestBody: 'buffered',
+        fetch: async request => {
+          let target
+          try {
+            const url = new URL(request.url, 'http://x')
+            target = url.searchParams.get('id') ?? url.searchParams.get('email') ?? undefined
+          } catch {
+            target = undefined
+          }
+          if (!target && request.method === 'POST') {
+            const body = await readJson(request)
+            target = typeof body.id === 'string' && body.id.length > 0 ? body.id : undefined
+          }
+          const result = await probeQuota(target)
+          return Response.json(result, { headers: JSON_HEADERS })
+        },
+      }),
+    'antigravity-pool: settings quota route',
+  )
 }
