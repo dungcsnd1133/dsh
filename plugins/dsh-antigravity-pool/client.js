@@ -21,6 +21,7 @@ window.__ModuleLoader__.load({
         loading: 'Đang tải danh sách tài khoản…',
         empty: 'Chưa có tài khoản nào. Bấm "Thêm tài khoản" để đăng nhập Google.',
         add: 'Thêm tài khoản',
+        addOnPage: 'Mở trang thêm tài khoản',
         addTitle: 'Thêm tài khoản Antigravity',
         step1: '1. Mở trang đăng nhập Google rồi chọn tài khoản và đồng ý cấp quyền.',
         openSignIn: 'Mở trang đăng nhập',
@@ -87,6 +88,7 @@ window.__ModuleLoader__.load({
         loading: 'Loading accounts…',
         empty: 'No accounts yet. Choose "Add account" to sign in with Google.',
         add: 'Add account',
+        addOnPage: 'Open the add-account page',
         addTitle: 'Add an Antigravity account',
         step1: '1. Open the Google sign-in page, pick an account, and consent.',
         openSignIn: 'Open sign-in page',
@@ -282,255 +284,11 @@ window.__ModuleLoader__.load({
      * @param props - copy, close callback, and the refresh hook.
      * @returns the modal element tree.
      */
-    function AddDialog({ t, onClose, onDone }) {
-      const [authUrl, setAuthUrl] = useState('')
-      const [input, setInput] = useState('')
-      const [busy, setBusy] = useState(false)
-      const [error, setError] = useState('')
-      const [opened, setOpened] = useState(false)
-
-      const mint = useCallback(async () => {
-        setError('')
-        try {
-          const answer = await call(API.authUrl, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ origin: window.location.origin }),
-          })
-          setAuthUrl(answer.authUrl)
-          setOpened(true)
-          // Cùng tab: Google quay lại /antigravity/oauth/callback rồi tự về đây.
-          window.location.href = answer.authUrl
-        } catch (failure) {
-          setError(failure instanceof Error ? failure.message : String(failure))
-        }
-      }, [])
-
-      useEffect(() => {
-        mint()
-      }, [mint])
-
-      const submit = useCallback(async () => {
-        if (input.trim().length === 0) return
-        setBusy(true)
-        setError('')
-        try {
-          const answer = await call(API.exchange, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ input }),
-          })
-          onDone(answer)
-        } catch (failure) {
-          setError(failure instanceof Error ? failure.message : String(failure))
-        } finally {
-          setBusy(false)
-        }
-      }, [input, onDone])
-
-      return h(
-        'div',
-        { className: 'agp-backdrop', role: 'presentation', onClick: event => event.target === event.currentTarget && onClose() },
-        h(
-          'div',
-          { className: 'agp-modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': t.addTitle },
-          h('h3', null, t.addTitle),
-          h('p', null, t.step1),
-          h(
-            'div',
-            { className: 'agp-row', style: { marginBottom: '12px' } },
-            h(
-              'button',
-              { type: 'button', className: 'agp-btn agp-btn-primary', onClick: mint },
-              opened ? t.openSignIn : t.openSignIn,
-            ),
-          ),
-          h('p', null, t.step2),
-          h(
-            'div',
-            { className: 'agp-field' },
-            h('input', {
-              className: 'agp-input',
-              type: 'text',
-              value: input,
-              placeholder: t.pastePlaceholder,
-              onChange: event => setInput(event.target.value),
-              onKeyDown: event => {
-                if (event.key === 'Enter' && !busy) submit()
-              },
-              autoFocus: true,
-              spellCheck: false,
-            }),
-          ),
-          error ? h('p', { className: 'agp-err', role: 'alert' }, error) : null,
-          authUrl ? h('p', { className: 'agp-log-row', style: { wordBreak: 'break-all', marginTop: '8px' } }, authUrl.slice(0, 160) + '…') : null,
-          h(
-            'div',
-            { className: 'agp-modal-actions' },
-            h('button', { type: 'button', className: 'agp-btn', onClick: onClose, disabled: busy }, t.cancel),
-            h(
-              'button',
-              { type: 'button', className: 'agp-btn agp-btn-primary', onClick: submit, disabled: busy || input.trim().length === 0 },
-              busy ? h('span', null, h('span', { className: 'agp-spin' }), ' ', t.submitting) : t.submit,
-            ),
-          ),
-        ),
-      )
-    }
-
-    /**
-     * One pool row: identity, health, and per-account actions.
-     * @param props - account record, copy, and the action dispatcher.
-     * @returns the row element tree.
-     */
-    /**
-     * Resolve the health class for a percentage.
-     * @param percent - remaining share, 0..100, or null when unmeasured.
-     * @returns CSS class suffix used by both the number and the bar.
-     */
-    function quotaClass(percent) {
-      if (typeof percent !== 'number') return 'unknown'
-      if (percent >= 60) return 'high'
-      if (percent >= 25) return 'mid'
-      return 'low'
-    }
-
-    /**
-     * One account's quota meter: headline percentage, bar, and reset time.
-     * @param props - cached quota record, copy, and the refresh callback.
-     * @returns the meter element tree.
-     */
-    function QuotaMeter({ quota, t, onRefresh, busy }) {
-      const percent = quota && typeof quota.percent === 'number' ? quota.percent : null
-      const kind = quotaClass(percent)
-      const reset = quota && quota.resetTime ? new Date(quota.resetTime) : null
-      const resetText =
-        reset && !Number.isNaN(reset.getTime())
-          ? `${t.resetAt} ${reset.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`
-          : null
-      const measured =
-        quota && quota.checkedAt
-          ? fill(t.measured, {
-              time: new Date(quota.checkedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }),
-            })
-          : null
-
-      return h(
-        'div',
-        { className: 'agp-quota' },
-        h(
-          'div',
-          { className: 'agp-quota-head' },
-          percent === null
-            ? h('span', { className: 'agp-quota-num unknown' }, quota && quota.message ? quota.message : t.quotaUnknown)
-            : h('span', { className: `agp-quota-num ${kind}` }, fill(t.quotaLeft, { percent })),
-          h('span', { className: 'agp-quota-label' }, t.quota),
-          h(
-            'button',
-            {
-              type: 'button',
-              className: 'agp-btn agp-btn-sm',
-              style: { marginLeft: 'auto', height: '24px', padding: '0 8px', fontSize: '11px' },
-              disabled: busy,
-              onClick: onRefresh,
-              title: t.quotaHint,
-            },
-            busy ? t.quotaChecking : t.quotaRefresh,
-          ),
-        ),
-        h(
-          'div',
-          { className: 'agp-bar' },
-          h('div', {
-            className: `agp-bar-fill ${kind}`,
-            style: percent === null ? undefined : { width: `${Math.max(0, Math.min(100, percent))}%` },
-          }),
-        ),
-        h(
-          'div',
-          { className: 'agp-quota-meta' },
-          quota && quota.bottleneck ? h('span', null, fill(t.bottleneck, { name: quota.bottleneck })) : null,
-          resetText ? h('span', null, resetText) : null,
-          measured ? h('span', null, measured) : null,
-        ),
-      )
-    }
-
-    function AccountCard({ account, t, running, act, onRefreshQuota, quotaBusy }) {
-      const badge = account.isActive
-        ? h('span', { className: 'agp-badge agp-badge-on' }, t.active)
-        : account.status === 'cooldown'
-          ? h('span', { className: 'agp-badge agp-badge-off' }, fill(t.cooldown, { n: Math.max(1, Math.round(account.cooldownRemainingSec / 60)) }))
-          : account.expired
-            ? h('span', { className: 'agp-badge agp-badge-warn' }, t.expired)
-            : h('span', { className: 'agp-badge agp-badge-on' }, t.valid)
-
-      return h(
-        'div',
-        { className: account.isActive ? 'agp-card agp-card-active' : 'agp-card' },
-        h(
-          'div',
-          { className: 'agp-row' },
-          h('span', { className: 'agp-email' }, account.email),
-          badge,
-          account.label ? h('span', { className: 'agp-meta' }, account.label) : null,
-        ),
-        // Live quota is why someone opens this card, so it sits directly under
-        // the identity instead of behind a Test button.
-        h(QuotaMeter, {
-          quota: account.lastQuota,
-          t,
-          busy: quotaBusy === account.id,
-          onRefresh: () => onRefreshQuota(account),
-        }),
-        account.lastError ? h('div', { className: 'agp-err' }, account.lastError) : null,
-        h(
-          'div',
-          { className: 'agp-actions' },
-          account.isActive
-            ? null
-            : h(
-                'button',
-                { type: 'button', className: 'agp-btn agp-btn-sm', disabled: running, onClick: () => act('select', account) },
-                t.switchTo,
-              ),
-          h(
-            'button',
-            { type: 'button', className: 'agp-btn agp-btn-sm', disabled: running, onClick: () => act('reset-quota', account) },
-            t.reset,
-          ),
-          h(
-            'button',
-            { type: 'button', className: 'agp-btn agp-btn-sm agp-btn-danger', disabled: running, onClick: () => act('remove', account) },
-            t.remove,
-          ),
-        ),
-        h(
-          'details',
-          { className: 'agp-details' },
-          h('summary', null, t.details),
-          h(
-            'div',
-            { className: 'agp-quota-meta', style: { marginTop: '4px' } },
-            h('span', null, `${t.project}: ${account.projectId}`),
-            h('span', null, `${t.expiry}: ${dateText(account.expires)}`),
-            h('span', null, `${t.requests}: ${account.totalRequests}`),
-            h('span', null, `${t.quotaHits}: ${account.quotaHits}`),
-          ),
-        ),
-      )
-    }
-
-    /**
-     * Settings → Models card listing the Antigravity pool.
-     * @returns the section element tree.
-     */
     function AntigravityPool() {
       const t = dictionary()
       const [state, setState] = useState({ status: 'loading', pool: null, configured: true })
       const [error, setError] = useState('')
       const [notice, setNotice] = useState('')
-      const [adding, setAdding] = useState(false)
       const [running, setRunning] = useState(false)
       const [cooldown, setCooldown] = useState(30)
       // Which account's quota is being measured right now ('all' for a sweep).
@@ -700,8 +458,18 @@ window.__ModuleLoader__.load({
             h('button', { type: 'button', className: 'agp-btn', onClick: load, disabled: running }, t.retry),
             h(
               'button',
-              { type: 'button', className: 'agp-btn agp-btn-primary', onClick: () => setAdding(true), disabled: !state.configured },
-              t.add,
+              {
+                type: 'button',
+                className: 'agp-btn agp-btn-primary',
+                // Adding an account needs the full-width page (steps, OAuth
+                // client form, paste box). Sending people there keeps one
+                // implementation instead of a cramped copy in a modal.
+                onClick: () => {
+                  const target = new URL('antigravity', document.baseURI).toString()
+                  window.open(target, '_blank', 'noopener,noreferrer')
+                },
+              },
+              t.addOnPage,
             ),
           ),
         ),
@@ -766,21 +534,6 @@ window.__ModuleLoader__.load({
             )
           : null,
 
-        adding
-          ? h(AddDialog, {
-              t,
-              onClose: () => setAdding(false),
-              onDone: answer => {
-                setAdding(false)
-                if (answer?.pool) {
-                  setState(current => ({ ...current, status: 'ready', pool: answer.pool }))
-                  setCooldown(Number(answer.pool.cooldownMinutes || 30))
-                }
-                setNotice(answer?.email ? `${answer.email}` : t.saved)
-                load()
-              },
-            })
-          : null,
       )
     }
 

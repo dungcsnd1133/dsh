@@ -454,6 +454,22 @@ await test('expired cooldown auto-recovers on next pool read', async () => {
 // ---------- Settings → Models card routes (settings-routes.mjs) ----------
 const settingsMod = await import(path.join(pluginDir, 'settings-routes.mjs'))
 
+await test('the Settings card links to the page instead of duplicating the add dialog', () => {
+  const client = fs.readFileSync(path.join(pluginDir, 'client.js'), 'utf8')
+  // One implementation: the card sends people to /antigravity to add an account.
+  assert.ok(!/AddDialog/.test(client), 'không còn AddDialog trong card')
+  assert.ok(!/setAdding/.test(client), 'không còn state modal thêm tài khoản')
+  assert.match(client, /new URL\('antigravity', document\.baseURI\)/, 'nút mở trang /antigravity')
+  assert.match(client, /addOnPage/, 'nhãn nút nói rõ là mở trang')
+})
+
+await test('the standalone page still owns the add-account flow', () => {
+  const ui = fs.readFileSync(path.join(pluginDir, 'ui.html'), 'utf8')
+  assert.match(ui, /id="openAuth"/, 'trang có nút đăng nhập Google')
+  assert.match(ui, /id="fCallback"/, 'trang có ô dán URL callback')
+  assert.match(ui, /id="mConnect"/, 'trang có nút kết nối')
+})
+
 await test('docs/oauth-client.md ships and distinguishes invalid_grant from invalid_client', () => {
   const doc = fs.readFileSync(path.join(pluginDir, 'docs', 'oauth-client.md'), 'utf8')
   // the client-verification trick must be documented with both outcomes
