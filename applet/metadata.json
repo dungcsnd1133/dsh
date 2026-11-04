@@ -1,0 +1,6 @@
+{
+  "name": "DSH Superagent (dungcsnd1133/dsh)",
+  "description": "Bộ cài DSH Superagent (@deepseek-ai/dsh@0.2.1-rc.5) từ repo dungcsnd1133/dsh với plugin dsh-context-auto 1.1.2 (ngân sách ngữ cảnh 1M token), dsh-media, dsh-video-watch, dsh-media-play và hide-session-memory-hud.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

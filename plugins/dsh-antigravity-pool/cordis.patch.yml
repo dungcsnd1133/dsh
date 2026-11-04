@@ -1,0 +1,3 @@
+- insert:
+    - id: dsh-antigravity-pool
+      name: '@local/dsh-antigravity-pool'

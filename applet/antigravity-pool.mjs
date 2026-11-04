@@ -1,0 +1,486 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import yaml from 'yaml';
+
+export const WORKSPACE_ROOT = '/app/applet';
+export const DSH_HOME = path.join(WORKSPACE_ROOT, '.dsh-home');
+export const POOL_FILE = path.join(DSH_HOME, 'antigravity-pool.json');
+export const CREDENTIALS_FILE = path.join(DSH_HOME, '.credentials.yaml');
+
+export const ANTIGRAVITY_CLIENT_ID = process.env.ANTIGRAVITY_CLIENT_ID ?? '';
+export const ANTIGRAVITY_CLIENT_SECRET = process.env.ANTIGRAVITY_CLIENT_SECRET ?? '';
+export const ANTIGRAVITY_REDIRECT_URI = 'http://localhost:51121/oauth-callback';
+export const ANTIGRAVITY_SCOPES = [
+  'https://www.googleapis.com/auth/cloud-platform',
+  'https://www.googleapis.com/auth/userinfo.email',
+  'https://www.googleapis.com/auth/userinfo.profile',
+  'https://www.googleapis.com/auth/cclog',
+  'https://www.googleapis.com/auth/experimentsandconfigs',
+];
+export const ANTIGRAVITY_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
+export const ANTIGRAVITY_TOKEN_URL = 'https://oauth2.googleapis.com/token';
+export const ANTIGRAVITY_DEFAULT_PROJECT_ID = 'rising-fact-p41fc';
+
+export function readStoredCredentialsGrant() {
+  try {
+    if (!fs.existsSync(CREDENTIALS_FILE)) return null;
+    const doc = yaml.parse(fs.readFileSync(CREDENTIALS_FILE, 'utf8'));
+    const payload = doc?.records?.['llm-pi-ai/google']?.payload;
+    if (!payload || typeof payload.access !== 'string' || typeof payload.refresh !== 'string') {
+      return null;
+    }
+    return {
+      type: 'oauth',
+      access: payload.access,
+      refresh: payload.refresh,
+      expires: Number(payload.expires || 0),
+      projectId: typeof payload.projectId === 'string' && payload.projectId ? payload.projectId : ANTIGRAVITY_DEFAULT_PROJECT_ID,
+      email: typeof payload.email === 'string' && payload.email ? payload.email : 'primary@antigravity',
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function writeStoredCredentialsGrant(account) {
+  try {
+    fs.mkdirSync(DSH_HOME, { recursive: true });
+    let doc = { version: 1, records: {} };
+    if (fs.existsSync(CREDENTIALS_FILE)) {
+      try {
+        const parsed = yaml.parse(fs.readFileSync(CREDENTIALS_FILE, 'utf8'));
+        if (parsed && typeof parsed === 'object') doc = parsed;
+      } catch {
+        // ignore corrupt yaml
+      }
+    }
+    doc.version = 1;
+    doc.records = doc.records || {};
+    if (!account) {
+      delete doc.records['llm-pi-ai/google'];
+    } else {
+      doc.records['llm-pi-ai/google'] = {
+        kind: 'grant',
+        payload: {
+          type: 'oauth',
+          access: account.access,
+          refresh: account.refresh,
+          expires: Math.floor(account.expires),
+          projectId: account.projectId || ANTIGRAVITY_DEFAULT_PROJECT_ID,
+          ...(account.email ? { email: account.email } : {}),
+        },
+      };
+    }
+    fs.writeFileSync(CREDENTIALS_FILE, yaml.stringify(doc), { mode: 0o600 });
+    fs.chmodSync(CREDENTIALS_FILE, 0o600);
+  } catch (err) {
+    console.error('[AntigravityPool] Failed to sync credentials to .credentials.yaml:', err);
+  }
+}
+
+function defaultPoolState() {
+  return {
+    version: 1,
+    strategy: 'quota-failover',
+    retryOnQuota: true,
+    cooldownMinutes: 30,
+    activeIndex: 0,
+    accounts: [],
+    logs: [
+      {
+        timestamp: Date.now(),
+        type: 'info',
+        message: 'Khởi tạo hệ thống quản lý xoay vòng Antigravity đa tài khoản',
+      },
+    ],
+  };
+}
+
+export function loadPool() {
+  fs.mkdirSync(DSH_HOME, { recursive: true });
+  let pool = defaultPoolState();
+
+  if (fs.existsSync(POOL_FILE)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(POOL_FILE, 'utf8'));
+      if (data && Array.isArray(data.accounts)) {
+        pool = {
+          ...pool,
+          ...data,
+          accounts: data.accounts.map((acc, idx) => ({
+            id: acc.id || `acc_${idx}_${Date.now()}`,
+            email: acc.email || `account_${idx + 1}@antigravity`,
+            projectId: acc.projectId || ANTIGRAVITY_DEFAULT_PROJECT_ID,
+            access: acc.access || '',
+            refresh: acc.refresh || '',
+            expires: Number(acc.expires || 0),
+            addedAt: Number(acc.addedAt || Date.now()),
+            lastUsedAt: Number(acc.lastUsedAt || 0),
+            status: acc.status || 'active',
+            quotaExceededUntil: acc.quotaExceededUntil ? Number(acc.quotaExceededUntil) : null,
+            totalRequests: Number(acc.totalRequests || 0),
+            quotaHits: Number(acc.quotaHits || 0),
+            lastError: acc.lastError || null,
+          })),
+        };
+      }
+    } catch {
+      // use default pool state
+    }
+  }
+
+  // Bootstrap from .credentials.yaml if pool is empty
+  if (pool.accounts.length === 0) {
+    const existing = readStoredCredentialsGrant();
+    if (existing && existing.access && existing.refresh) {
+      pool.accounts.push({
+        id: `acc_0_${Date.now()}`,
+        email: existing.email || 'primary@antigravity',
+        projectId: existing.projectId || ANTIGRAVITY_DEFAULT_PROJECT_ID,
+        access: existing.access,
+        refresh: existing.refresh,
+        expires: existing.expires,
+        addedAt: Date.now(),
+        lastUsedAt: Date.now(),
+        status: 'active',
+        quotaExceededUntil: null,
+        totalRequests: 0,
+        quotaHits: 0,
+        lastError: null,
+      });
+      pool.activeIndex = 0;
+      savePool(pool);
+    }
+  }
+
+  // Auto-recover expired cooldowns
+  const now = Date.now();
+  let changed = false;
+  for (const acc of pool.accounts) {
+    if (acc.status === 'cooldown' && acc.quotaExceededUntil && acc.quotaExceededUntil <= now) {
+      acc.status = 'active';
+      acc.quotaExceededUntil = null;
+      changed = true;
+    }
+  }
+  if (changed) {
+    savePool(pool);
+  }
+
+  return pool;
+}
+
+export function savePool(pool) {
+  try {
+    fs.mkdirSync(DSH_HOME, { recursive: true });
+    if (Array.isArray(pool.logs) && pool.logs.length > 100) {
+      pool.logs = pool.logs.slice(-100);
+    }
+    fs.writeFileSync(POOL_FILE, JSON.stringify(pool, null, 2), { mode: 0o600 });
+  } catch (err) {
+    console.error('[AntigravityPool] Failed to save pool:', err);
+  }
+}
+
+export function getSanitizedPoolView() {
+  const pool = loadPool();
+  const now = Date.now();
+  const accounts = pool.accounts.map((acc, idx) => ({
+    id: acc.id,
+    email: acc.email,
+    projectId: acc.projectId,
+    expires: acc.expires,
+    addedAt: acc.addedAt,
+    lastUsedAt: acc.lastUsedAt,
+    status: acc.status,
+    isActive: idx === pool.activeIndex,
+    quotaExceededUntil: acc.quotaExceededUntil,
+    cooldownRemainingSec: acc.quotaExceededUntil && acc.quotaExceededUntil > now
+      ? Math.ceil((acc.quotaExceededUntil - now) / 1000)
+      : 0,
+    totalRequests: acc.totalRequests || 0,
+    quotaHits: acc.quotaHits || 0,
+    lastError: acc.lastError || null,
+  }));
+
+  return {
+    strategy: pool.strategy,
+    retryOnQuota: pool.retryOnQuota,
+    cooldownMinutes: pool.cooldownMinutes,
+    activeIndex: pool.activeIndex,
+    totalAccounts: accounts.length,
+    totalHealthy: accounts.filter((a) => a.status === 'active').length,
+    accounts,
+    logs: (pool.logs || []).slice(-30).reverse(),
+  };
+}
+
+export function isQuotaExceededError(statusOrError, text = '') {
+  const status = typeof statusOrError === 'number' ? statusOrError : 0;
+  const combined = `${String(statusOrError || '')} ${String(text || '')}`;
+  if (status === 429) return true;
+  return /quota|RESOURCE_EXHAUSTED|rateLimitExceeded|Too Many Requests/i.test(combined);
+}
+
+async function refreshAccountIfNeeded(acc) {
+  if (!acc || !acc.refresh) return acc;
+  if (Date.now() + 5 * 60 * 1000 < Number(acc.expires || 0)) {
+    return acc;
+  }
+  const res = await fetch(ANTIGRAVITY_TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: ANTIGRAVITY_CLIENT_ID,
+      client_secret: ANTIGRAVITY_CLIENT_SECRET,
+      refresh_token: acc.refresh,
+      grant_type: 'refresh_token',
+    }),
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Refresh token failed (${res.status}): ${errText}`);
+  }
+  const data = await res.json();
+  if (!data.access_token) {
+    throw new Error('Refresh response missing access_token');
+  }
+  acc.access = data.access_token;
+  acc.refresh = data.refresh_token || acc.refresh;
+  acc.expires = Date.now() + (data.expires_in || 3600) * 1000 - 5 * 60 * 1000;
+  return acc;
+}
+
+export async function getActiveValidAccount(opts = {}) {
+  const pool = loadPool();
+  if (!pool.accounts.length) {
+    return readStoredCredentialsGrant();
+  }
+
+  let idx = Number.isInteger(pool.activeIndex) && pool.activeIndex >= 0 && pool.activeIndex < pool.accounts.length
+    ? pool.activeIndex
+    : 0;
+
+  if (opts?.rotateNext && pool.accounts.length > 1) {
+    idx = (idx + 1) % pool.accounts.length;
+  }
+
+  for (let offset = 0; offset < pool.accounts.length; offset++) {
+    const candidateIdx = (idx + offset) % pool.accounts.length;
+    const acc = pool.accounts[candidateIdx];
+    if (acc.status === 'cooldown' && acc.quotaExceededUntil && acc.quotaExceededUntil > Date.now()) {
+      continue;
+    }
+    try {
+      await refreshAccountIfNeeded(acc);
+      acc.status = 'active';
+      pool.activeIndex = candidateIdx;
+      savePool(pool);
+      writeStoredCredentialsGrant(acc);
+      return acc;
+    } catch (err) {
+      acc.lastError = err instanceof Error ? err.message : String(err);
+      savePool(pool);
+    }
+  }
+
+  const fallback = pool.accounts[idx] || pool.accounts[0];
+  if (fallback) {
+    try {
+      await refreshAccountIfNeeded(fallback);
+      savePool(pool);
+      writeStoredCredentialsGrant(fallback);
+    } catch {
+      // ignore
+    }
+    return fallback;
+  }
+  return null;
+}
+
+export async function handleAccountQuotaExceeded(idOrEmail, errorMessage = '') {
+  const pool = loadPool();
+  const idx = pool.accounts.findIndex((a) => a.id === idOrEmail || a.email === idOrEmail);
+  if (idx === -1) return null;
+
+  const acc = pool.accounts[idx];
+  const cooldownMs = Math.max(1, Number(pool.cooldownMinutes || 30)) * 60 * 1000;
+  acc.status = 'cooldown';
+  acc.quotaExceededUntil = Date.now() + cooldownMs;
+  acc.quotaHits = (acc.quotaHits || 0) + 1;
+  acc.lastError = String(errorMessage || 'Quota exceeded').slice(0, 300);
+
+  pool.logs = pool.logs || [];
+  pool.logs.push({
+    timestamp: Date.now(),
+    type: 'quota',
+    message: `Tài khoản ${acc.email} chạm giới hạn Quota, tạm nghỉ ${pool.cooldownMinutes || 30} phút`,
+  });
+
+  // Switch activeIndex to next healthy account
+  for (let offset = 1; offset < pool.accounts.length; offset++) {
+    const nextIdx = (idx + offset) % pool.accounts.length;
+    const candidate = pool.accounts[nextIdx];
+    if (candidate.status === 'active') {
+      pool.activeIndex = nextIdx;
+      writeStoredCredentialsGrant(candidate);
+      break;
+    }
+  }
+
+  savePool(pool);
+  return acc;
+}
+
+export function recordAccountSuccess(idOrEmail) {
+  const pool = loadPool();
+  const acc = pool.accounts.find((a) => a.id === idOrEmail || a.email === idOrEmail);
+  if (!acc) return;
+  acc.status = 'active';
+  acc.quotaExceededUntil = null;
+  acc.lastUsedAt = Date.now();
+  acc.totalRequests = (acc.totalRequests || 0) + 1;
+  acc.lastError = null;
+  savePool(pool);
+}
+
+export function addOrUpdateAccount(payload) {
+  if (!payload || !payload.access || !payload.refresh) return null;
+  const pool = loadPool();
+  const email = payload.email || `account_${pool.accounts.length + 1}@antigravity`;
+  let existing = pool.accounts.find((a) => a.email === email);
+  if (existing) {
+    existing.access = payload.access;
+    existing.refresh = payload.refresh;
+    existing.expires = Number(payload.expires || Date.now() + 3600 * 1000);
+    existing.projectId = payload.projectId || existing.projectId || ANTIGRAVITY_DEFAULT_PROJECT_ID;
+    existing.status = 'active';
+    existing.quotaExceededUntil = null;
+    existing.lastError = null;
+  } else {
+    existing = {
+      id: `acc_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      email,
+      projectId: payload.projectId || ANTIGRAVITY_DEFAULT_PROJECT_ID,
+      access: payload.access,
+      refresh: payload.refresh,
+      expires: Number(payload.expires || Date.now() + 3600 * 1000),
+      addedAt: Date.now(),
+      lastUsedAt: Date.now(),
+      status: 'active',
+      quotaExceededUntil: null,
+      totalRequests: 0,
+      quotaHits: 0,
+      lastError: null,
+    };
+    pool.accounts.push(existing);
+    pool.activeIndex = pool.accounts.length - 1;
+  }
+
+  pool.logs = pool.logs || [];
+  pool.logs.push({
+    timestamp: Date.now(),
+    type: 'auth',
+    message: `Đã kết nối tài khoản Antigravity: ${email}`,
+  });
+
+  savePool(pool);
+  writeStoredCredentialsGrant(existing);
+  return existing;
+}
+
+export function removeAccount(idOrEmail) {
+  const pool = loadPool();
+  const idx = pool.accounts.findIndex((a) => a.id === idOrEmail || a.email === idOrEmail);
+  if (idx === -1) return false;
+  const [removed] = pool.accounts.splice(idx, 1);
+  if (pool.activeIndex >= pool.accounts.length) {
+    pool.activeIndex = Math.max(0, pool.accounts.length - 1);
+  }
+  const nextActive = pool.accounts[pool.activeIndex] || null;
+  writeStoredCredentialsGrant(nextActive);
+  pool.logs = pool.logs || [];
+  pool.logs.push({
+    timestamp: Date.now(),
+    type: 'info',
+    message: `Đã gỡ tài khoản ${removed.email}`,
+  });
+  savePool(pool);
+  return true;
+}
+
+export function setActiveAccount(idOrEmail) {
+  const pool = loadPool();
+  const idx = pool.accounts.findIndex((a) => a.id === idOrEmail || a.email === idOrEmail);
+  if (idx === -1) return null;
+  pool.activeIndex = idx;
+  const acc = pool.accounts[idx];
+  acc.status = 'active';
+  acc.quotaExceededUntil = null;
+  writeStoredCredentialsGrant(acc);
+  savePool(pool);
+  return acc;
+}
+
+export function resetAccountQuota(idOrEmail) {
+  const pool = loadPool();
+  const acc = pool.accounts.find((a) => a.id === idOrEmail || a.email === idOrEmail);
+  if (!acc) return null;
+  acc.status = 'active';
+  acc.quotaExceededUntil = null;
+  acc.lastError = null;
+  savePool(pool);
+  return acc;
+}
+
+export function updatePoolConfig(partialConfig = {}) {
+  const pool = loadPool();
+  if (typeof partialConfig.strategy === 'string') {
+    pool.strategy = partialConfig.strategy;
+  }
+  if (typeof partialConfig.retryOnQuota === 'boolean') {
+    pool.retryOnQuota = partialConfig.retryOnQuota;
+  }
+  if (typeof partialConfig.cooldownMinutes === 'number' && partialConfig.cooldownMinutes > 0) {
+    pool.cooldownMinutes = partialConfig.cooldownMinutes;
+  }
+  savePool(pool);
+  return {
+    strategy: pool.strategy,
+    retryOnQuota: pool.retryOnQuota,
+    cooldownMinutes: pool.cooldownMinutes,
+  };
+}
+
+export async function testAccountQuota(idOrEmail) {
+  const pool = loadPool();
+  const acc = idOrEmail
+    ? pool.accounts.find((a) => a.id === idOrEmail || a.email === idOrEmail)
+    : pool.accounts[pool.activeIndex] || pool.accounts[0];
+  if (!acc) {
+    return { ok: false, message: 'Không tìm thấy tài khoản Antigravity để kiểm tra.' };
+  }
+  try {
+    await refreshAccountIfNeeded(acc);
+    const res = await fetch('https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:fetchAvailableModels', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${acc.access}`,
+        'Content-Type': 'application/json',
+        'User-Agent': 'antigravity/1.15.8 darwin/arm64',
+      },
+      body: JSON.stringify({ project: acc.projectId || ANTIGRAVITY_DEFAULT_PROJECT_ID }),
+    });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      return { ok: false, message: `HTTP ${res.status}: ${errText.slice(0, 200)}` };
+    }
+    acc.status = 'active';
+    acc.quotaExceededUntil = null;
+    acc.lastError = null;
+    savePool(pool);
+    return { ok: true, message: `Tài khoản ${acc.email} hoạt động tốt.` };
+  } catch (err) {
+    return { ok: false, message: err instanceof Error ? err.message : String(err) };
+  }
+}
