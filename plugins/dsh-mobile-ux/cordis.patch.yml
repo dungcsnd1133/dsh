@@ -1,0 +1,3 @@
+- insert:
+    - id: dsh-mobile-ux
+      name: '@local/dsh-mobile-ux'

@@ -1,0 +1,30 @@
+{
+  "name": "@local/dsh-mobile-ux",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Mobile touch-target and view-restore fixes for the DSH web shell, applied as a CSS/JS overlay so the shipped bundle stays untouched.",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-layout"
+      ]
+    }
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md"
+  ]
+}
