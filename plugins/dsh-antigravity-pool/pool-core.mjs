@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import yaml from 'yaml';
+import { createHash, randomBytes } from 'node:crypto';
 
 // Paths are injected at init time so the same core runs on any machine.
 // configurePaths() must be called before using POOL_FILE / CREDENTIALS_FILE.
@@ -52,6 +53,91 @@ export const ANTIGRAVITY_SCOPES = [
 export const ANTIGRAVITY_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 export const ANTIGRAVITY_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 export const ANTIGRAVITY_DEFAULT_PROJECT_ID = 'rising-fact-p41fc';
+
+// RFC 7636 PKCE helpers — Google requires PKCE for installed-app flows.
+export function makePkcePair() {
+  const verifier = randomBytes(48).toString('base64url');
+  const challenge = createHash('sha256').update(verifier).digest('base64url');
+  return { verifier, challenge };
+}
+
+// Build the Google consent URL. redirectUri should be the OAuth client's
+// registered URI (typically http://localhost:51121/oauth-callback) — the
+// browser ends up there after consent and the user copies the full URL
+// (it contains ?code=…) back into the pool UI.
+export function buildAuthUrl({ redirectUri, state, codeChallenge } = {}) {
+  const { clientId } = readAntigravityEnv();
+  if (!clientId) {
+    throw new Error('[AntigravityPool] ANTIGRAVITY_CLIENT_ID is not set in the environment');
+  }
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri || ANTIGRAVITY_REDIRECT_URI,
+    response_type: 'code',
+    scope: ANTIGRAVITY_SCOPES.join(' '),
+    access_type: 'offline',
+    prompt: 'consent',
+    include_granted_scopes: 'true',
+  });
+  if (state) params.set('state', state);
+  if (codeChallenge) {
+    params.set('code_challenge', codeChallenge);
+    params.set('code_challenge_method', 'S256');
+  }
+  return `${ANTIGRAVITY_AUTH_URL}?${params.toString()}`;
+}
+
+// Exchange either ?code=… (auth-code flow) or the full callback URL the user
+// pastes back. Returns a ready-to-store account object.
+export async function exchangeCallback({ callbackUrlOrCode, redirectUri, codeVerifier, email, projectId }) {
+  const { clientId, clientSecret } = readAntigravityEnv();
+  if (!clientId || !clientSecret) {
+    throw new Error('[AntigravityPool] ANTIGRAVITY_CLIENT_ID / ANTIGRAVITY_CLIENT_SECRET are not set in the environment');
+  }
+  let code = String(callbackUrlOrCode || '').trim();
+  const m = /[?&]code=([^&\s]+)/.exec(code);
+  if (m) code = decodeURIComponent(m[1]);
+  if (!code) throw new Error('Không tìm thấy ?code=… trong URL/đoạn mã đã dán');
+
+  const body = new URLSearchParams({
+    client_id: clientId,
+    client_secret: clientSecret,
+    code,
+    grant_type: 'authorization_code',
+    redirect_uri: redirectUri || ANTIGRAVITY_REDIRECT_URI,
+  });
+  if (codeVerifier) body.set('code_verifier', codeVerifier);
+
+  const res = await getFetch()(ANTIGRAVITY_TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body,
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Đổi token thất bại (${res.status}): ${errText.slice(0, 300)}`);
+  }
+  const data = await res.json();
+  if (!data.access_token || !data.refresh_token) {
+    throw new Error('Google không trả ' + (!data.access_token ? 'access_token' : 'refresh_token') + ' — thử lại với prompt=consent');
+  }
+  const account = addOrUpdateAccount({
+    email: email || undefined,
+    access: data.access_token,
+    refresh: data.refresh_token,
+    expires: Date.now() + (data.expires_in || 3600) * 1000 - 5 * 60 * 1000,
+    projectId: projectId || ANTIGRAVITY_DEFAULT_PROJECT_ID,
+  });
+  const pool = loadPool();
+  pool.logs = pool.logs || [];
+  pool.logs.push({
+    timestamp: Date.now(),
+    type: 'auth',
+    message: `Đã thêm tài khoản qua link auth: ${account.email}`,
+  });
+  savePool(pool);
+  return account;
+}
 
 export function readStoredCredentialsGrant() {
   try {

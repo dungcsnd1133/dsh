@@ -83,6 +83,8 @@ Mở **`/antigravity`** trong browser của DSH — "control room" dark dashboar
 | `GET /antigravity` | Trang UI quản lý |
 | `GET /antigravity/api/pool` | View pool (đã ẩn access/refresh) |
 | `GET /antigravity/api/status` | Trạng thái env OAuth (masked) |
+| `POST /antigravity/api/auth/start` | Tạo link đăng nhập Google (PKCE S256 + offline access), trả `{authUrl, codeVerifier}` |
+| `POST /antigravity/api/auth/exchange` | Nhận URL callback (hoặc code thô) dán lại → đổi token → thêm vào pool |
 | `GET /antigravity/api/account` | Lấy tài khoản active (tự refresh); `?rotate=next` để xoay |
 | `POST /antigravity/api/account` | Thêm/cập nhật tài khoản `{email, access, refresh, expires, projectId}` |
 | `POST /antigravity/api/quota-exceeded` | Báo quota chạm trần `{id, error}` → cooldown + rotate |

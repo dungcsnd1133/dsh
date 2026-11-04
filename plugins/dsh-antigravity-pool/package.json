@@ -1,6 +1,6 @@
 {
   "name": "@local/dsh-antigravity-pool",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "private": true,
   "type": "module",
   "description": "Multi-account Antigravity OAuth pool manager for DSH Superagent. Rotates Google OAuth accounts, auto-cools on quota errors, syncs the active grant into .credentials.yaml. Reads ANTIGRAVITY_CLIENT_ID and ANTIGRAVITY_CLIENT_SECRET from environment variables; no credentials are stored in this repository.",

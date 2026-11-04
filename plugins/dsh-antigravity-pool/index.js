@@ -15,6 +15,9 @@ import {
   testAccountQuota,
   readAntigravityEnv,
   isConfigured,
+  buildAuthUrl,
+  makePkcePair,
+  exchangeCallback,
   ANTIGRAVITY_AUTH_URL,
   ANTIGRAVITY_TOKEN_URL,
   ANTIGRAVITY_REDIRECT_URI,
@@ -141,6 +144,39 @@ export function apply(ctx, config) {
             retryOnQuota: body.retryOnQuota,
             cooldownMinutes: body.cooldownMinutes,
           }))
+          return
+        }
+
+        // --- OAuth link flow: build consent URL, then paste back the callback URL or code ---
+        if (pathName === '/antigravity/api/auth/start' && req.method === 'POST') {
+          const body = await readBody(req).catch(() => ({}))
+          const pkce = makePkcePair()
+          const redirectUri = body.redirectUri ? String(body.redirectUri) : undefined
+          const authUrl = buildAuthUrl({
+            redirectUri,
+            state: pkce.verifier.slice(0, 12),
+            codeChallenge: pkce.challenge,
+          })
+          // PKCE verifier stays in memory only for the next exchange call;
+          // also returned to the client which keeps it in the browser session.
+          json(res, 200, { authUrl, redirectUri: redirectUri || ANTIGRAVITY_REDIRECT_URI, codeVerifier: pkce.verifier })
+          return
+        }
+
+        if (pathName === '/antigravity/api/auth/exchange' && req.method === 'POST') {
+          const body = await readBody(req)
+          try {
+            const account = await exchangeCallback({
+              callbackUrlOrCode: String(body.callbackUrlOrCode || ''),
+              redirectUri: body.redirectUri ? String(body.redirectUri) : undefined,
+              codeVerifier: body.codeVerifier ? String(body.codeVerifier) : undefined,
+              email: body.email ? String(body.email) : undefined,
+              projectId: body.projectId ? String(body.projectId) : undefined,
+            })
+            json(res, 200, { ok: true, email: account.email, id: account.id })
+          } catch (err) {
+            json(res, 400, { error: err instanceof Error ? err.message : String(err) })
+          }
           return
         }
 

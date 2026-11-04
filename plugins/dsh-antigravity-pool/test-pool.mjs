@@ -17,9 +17,12 @@ function fakeFetch(url, init) {
   calls.push({ url, init })
   if (url.startsWith('https://oauth2.googleapis.com/token')) {
     tokenRefreshCount++
+    const isCodeExchange = String(init?.body || '').includes('grant_type=authorization_code')
     return Promise.resolve(new Response(JSON.stringify({
       access_token: `at_${tokenRefreshCount}`,
-      refresh_token: tokenRefreshCount === 1 ? 'rt_new' : undefined,
+      // code exchange always returns a refresh token; refresh grant only
+      // rotates it on the first call (mirrors Google's actual behaviour)
+      refresh_token: isCodeExchange || tokenRefreshCount === 1 ? `rt_${tokenRefreshCount}` : undefined,
       expires_in: 3600,
     }), { status: 200 }))
   }
@@ -147,7 +150,7 @@ await test('expired account triggers refresh via fake token endpoint', async () 
   assert.equal(r.json.access, 'at_1')
   assert.ok(tokenRefreshCount > before, 'token endpoint was called')
   // refresh_token rotation persisted
-  assert.equal(r.json.refresh, 'rt_new')
+  assert.equal(r.json.refresh, 'rt_1')
 })
 
 await test('missing env fails open with stale token and records lastError (applet contract)', async () => {
@@ -240,6 +243,50 @@ await test('remove account works and activeIndex clamps', async () => {
   assert.equal(pool.totalAccounts, 1)
 })
 
+await test('auth/start returns Google consent URL (env required)', async () => {
+  const r = await call('POST', '/antigravity/api/auth/start', {})
+  assert.equal(r.status, 200)
+  assert.ok(r.json.authUrl.startsWith('https://accounts.google.com/o/oauth2/v2/auth?'))
+  assert.ok(r.json.authUrl.includes('access_type=offline'))
+  assert.ok(r.json.authUrl.includes('code_challenge_method=S256'))
+  assert.ok(r.json.codeVerifier.length > 40)
+  assert.equal(r.json.redirectUri, 'http://localhost:51121/oauth-callback')
+})
+
+await test('auth/exchange pastes callback URL, calls token endpoint, stores account', async () => {
+  const start = await call('POST', '/antigravity/api/auth/start', {})
+  const before = calls.length
+  const r = await call('POST', '/antigravity/api/auth/exchange', {
+    callbackUrlOrCode: 'http://localhost:51121/oauth-callback?code=4%2F0ATEST&scope=https://www.googleapis.com/auth/cloud-platform',
+    codeVerifier: start.json.codeVerifier,
+    email: 'via-link@example.com',
+  })
+  assert.equal(r.status, 200, 'exchange should succeed: ' + JSON.stringify(r.json))
+  assert.equal(r.json.email, 'via-link@example.com')
+  // token endpoint hit exactly once with authorization_code grant
+  const tokenCalls = calls.slice(before).filter((c) => c.url.startsWith('https://oauth2.googleapis.com/token'))
+  assert.equal(tokenCalls.length, 1)
+  const sentBody = tokenCalls[0].init.body.toString()
+  assert.ok(sentBody.includes('grant_type=authorization_code'))
+  assert.ok(sentBody.includes('code_verifier='))
+  // account landed in pool
+  const pool = (await call('GET', '/antigravity/api/pool')).json
+  assert.ok(pool.accounts.some((a) => a.email === 'via-link@example.com'))
+})
+
+await test('auth/exchange rejects empty/garbage input before hitting Google', async () => {
+  // empty payload → plugin-side 400, no network call
+  const before = calls.length
+  const r0 = await call('POST', '/antigravity/api/auth/exchange', { callbackUrlOrCode: '' })
+  assert.equal(r0.status, 400)
+  assert.ok(r0.json.error.includes('code'))
+  assert.equal(calls.length, before, 'no token endpoint call for empty input')
+  // a string with no code= param is forwarded to Google as-is; with the real
+  // Google endpoint it 400s. Under fake fetch we just assert a call happened.
+  await call('POST', '/antigravity/api/auth/exchange', { callbackUrlOrCode: 'no-code-here' })
+  assert.ok(calls.length > before, 'non-empty garbage forwarded to token endpoint (Google rejects it there)')
+})
+
 await test('UI page renders from ui.html (control room)', async () => {
   const resPromise = fakeRes()
   await handler(fakeReq('GET', '/antigravity'), resPromise)
@@ -249,6 +296,7 @@ await test('UI page renders from ui.html (control room)', async () => {
   assert.match(html, /control room/)
   assert.match(html, /\/antigravity\/api\/pool/, 'UI gọi API pool')
   assert.match(html, /setInterval/, 'UI có auto-refresh')
+  assert.match(html, /auth\/start/, 'UI có luồng link auth')
 })
 
 await test('unknown api path returns 404 JSON', async () => {
