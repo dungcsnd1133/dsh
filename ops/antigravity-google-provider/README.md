@@ -70,6 +70,16 @@ Thêm vào `cordis.patch.yml` của profile:
             contextWindow: 1048576
             maxTokens: 65536
             input: [text, image]
+          - id: claude-sonnet-5-5
+            name: Claude Sonnet 5.5
+            contextWindow: 1000000
+            maxTokens: 128000
+            input: [text, image]
+          - id: claude-opus-5-5
+            name: Claude Opus 5.5
+            contextWindow: 1000000
+            maxTokens: 128000
+            input: [text, image]
 ```
 
 > **Bẫy đã gặp (04/11/2026):** đặt `api: google-generative-ai` khiến
@@ -77,6 +87,26 @@ Thêm vào `cordis.patch.yml` của profile:
 > đăng ký** — model picker báo `No models available`, chat báo `NO_ADAPTER`
 > cho cả TLPRO. Bỏ trường `api` là hết. Xem
 > [`ops/model-catalog-recovery`](../model-catalog-recovery/README.md).
+
+## Model và fallback theo tier
+
+Provider chỉ phơi ra **4 model** (`ALLOWED_GOOGLE_MODELS`), mỗi model ánh xạ tới
+nhiều id upstream vì hai tier được cấp bộ model khác nhau:
+
+| Model hiển thị | Id ưu tiên (paid / g1-ultra) | Fallback (free tier) |
+|---|---|---|
+| `gemini-4-argon` | `gemini-4-argon-high/medium/low` | `gemini-4-argon-disabled` → `gemini-3.8-flash-tiered` |
+| `gemini-3.8-flash` | `gemini-3.8-flash-tiered` → `-high/-medium/-low` | `gemini-3-flash` → `gemini-2.5-flash` |
+| `claude-sonnet-5-5` | `claude-sonnet-5-5-high/medium/low` | `claude-sonnet-4-6` |
+| `claude-opus-5-5` | `claude-opus-5-5-high/medium/low` | `claude-opus-4-6-thinking` |
+
+Thứ tự thử: `daily-cloudcode-pa.sandbox` → `daily-cloudcode-pa` → prod, cho từng
+id trong nhóm. Nhờ vậy cùng một model trong picker chạy được trên cả tài khoản
+paid (Claude 5.5, Argon 4) lẫn free (Claude 4.6, 3.8 Flash).
+
+`ANTIGRAVITY_MODEL_MAP` trong `patch-pi-ai.mjs` giữ bảng này; sửa ở đó rồi chạy
+lại script. Model bị `disabled: true` phía Google vẫn nằm trong chain nhưng sẽ
+trả lỗi — chain tự nhảy sang id kế tiếp.
 
 ## OAuth client
 

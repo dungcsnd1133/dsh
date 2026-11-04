@@ -24,6 +24,8 @@ import {
   takeHandshake,
   fetchQuotaSummary,
   fetchModelCatalogue,
+  fetchAccountTier,
+  loadPool,
   configureOAuthClientFile,
   oauthClientSource,
   saveOAuthClient,
@@ -350,14 +352,46 @@ export function apply(ctx, config) {
           return
         }
 
-        // Which models can this deployment's accounts actually use?
+        // Which models can the accounts actually use? Accounts differ: a paid
+        // tier gets Claude 5.5 and Gemini 4 Argon, a free-tier account gets
+        // Claude 4.6 and sees Gemini 4 Argon only as `disabled: true`.
+        // `?id=` or `?account=` targets one account; `?all=1` scans every one.
         if (pathName === '/antigravity/api/models' && (req.method === 'GET' || req.method === 'POST')) {
           try {
-            const account = await getActiveValidAccount()
-            if (!account) return json(res, 404, { error: 'pool empty' })
-            const catalogue = await fetchModelCatalogue(account.access, account.projectId)
-            if (!catalogue.ok) return json(res, 502, { error: catalogue.reason, models: [] })
-            json(res, 200, { ok: true, email: account.email, count: catalogue.models.length, models: catalogue.models })
+            const pool = loadPool()
+            if (!pool.accounts.length) return json(res, 404, { error: 'pool empty' })
+            const scope = url.searchParams.get('id') || url.searchParams.get('account')
+            const all = url.searchParams.get('all') === '1' || url.searchParams.get('all') === 'true'
+            const targets = scope
+              ? pool.accounts.filter((a) => a.id === scope || a.email === scope)
+              : all
+                ? pool.accounts
+                : [await getActiveValidAccount()].filter(Boolean)
+            if (!targets.length) return json(res, 404, { error: 'account not found' })
+
+            const accounts = []
+            for (const account of targets) {
+              const [catalogue, tier] = await Promise.all([
+                fetchModelCatalogue(account.access, account.projectId),
+                fetchAccountTier(account.access),
+              ])
+              accounts.push({
+                id: account.id,
+                email: account.email,
+                tier,
+                ok: catalogue.ok,
+                count: catalogue.models.length,
+                usable: catalogue.usable ?? catalogue.models.filter((m) => !m.disabled).length,
+                disabled: catalogue.disabled ?? 0,
+                models: catalogue.models,
+                ...(catalogue.reason ? { reason: catalogue.reason } : {}),
+              })
+            }
+            // Flat shape stays for single-account callers.
+            if (accounts.length === 1) {
+              return json(res, 200, { ...accounts[0] })
+            }
+            json(res, 200, { ok: true, accounts })
           } catch (err) {
             json(res, 503, { error: err instanceof Error ? err.message : String(err) })
           }

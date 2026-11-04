@@ -347,6 +347,10 @@ export function loadPool() {
             quotaHits: Number(acc.quotaHits || 0),
             lastError: acc.lastError || null,
             lastQuota: acc.lastQuota && typeof acc.lastQuota === 'object' ? acc.lastQuota : null,
+            tier: typeof acc.tier === 'string' ? acc.tier : null,
+            paidTier: typeof acc.paidTier === 'string' ? acc.paidTier : null,
+            modelCount: typeof acc.modelCount === 'number' ? acc.modelCount : null,
+            usableModelCount: typeof acc.usableModelCount === 'number' ? acc.usableModelCount : null,
           })),
         };
       }
@@ -714,6 +718,38 @@ export function updatePoolConfig(partialConfig = {}) {
  * @param {string} project - Cloud Code Assist project id.
  * @returns {Promise<{ok: boolean, groups: Array<Record<string, unknown>>, reason?: string}>}
  */
+/**
+ * Account tier. Free-tier and paid accounts are provisioned different model
+ * sets (a free-tier account sees Gemini 4 Argon but with `disabled: true`,
+ * and Claude 4.6 instead of 5.5), so the tier explains why two accounts offer
+ * different catalogues.
+ * @param {string} access - bearer token.
+ * @returns {Promise<{id: string, name: string, paid: string} | null>}
+ */
+export async function fetchAccountTier(access) {
+  try {
+    const res = await getFetch()('https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${access}`,
+        'Content-Type': 'application/json',
+        'User-Agent': ANTIGRAVITY_PROBE_USER_AGENT,
+        ...ANTIGRAVITY_IDE_HEADERS,
+      },
+      body: JSON.stringify({}),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return {
+      id: typeof data?.currentTier?.id === 'string' ? data.currentTier.id : '',
+      name: typeof data?.currentTier?.name === 'string' ? data.currentTier.name : '',
+      paid: typeof data?.paidTier?.id === 'string' ? data.paidTier.id : '',
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchQuotaSummary(access, project) {
   const bases = [
     'https://daily-cloudcode-pa.googleapis.com',
@@ -818,6 +854,10 @@ export async function fetchModelCatalogue(access, project) {
         maxTokens: typeof model?.maxTokens === 'number' ? model.maxTokens : null,
         maxOutputTokens: typeof model?.maxOutputTokens === 'number' ? model.maxOutputTokens : null,
         recommended: model?.recommended === true,
+        // `disabled: true` means the account can see the model but may not call
+        // it (e.g. Gemini 4 Argon on a free-tier account). Surface it instead of
+        // pretending the model is available.
+        disabled: model?.disabled === true,
         provider: typeof model?.modelProvider === 'string' ? model.modelProvider : '',
         tier: tierOf[id] ?? null,
         percent:
@@ -826,7 +866,8 @@ export async function fetchModelCatalogue(access, project) {
             : null,
       }));
       models.sort((a, b) => a.id.localeCompare(b.id));
-      return { ok: true, models };
+      const usable = models.filter((model) => !model.disabled);
+      return { ok: true, models, usable: usable.length, disabled: models.length - usable.length };
     } catch (err) {
       lastReason = err instanceof Error ? err.message : String(err);
     }
@@ -884,6 +925,16 @@ export async function probeQuota(idOrEmail) {
       // The grouped summary is what Antigravity itself renders (and the only
       // place weekly limits show up); per-model rows stay as the detail view.
       const summary = await fetchQuotaSummary(acc.access, acc.projectId);
+      const catalogue = await fetchModelCatalogue(acc.access, acc.projectId);
+      const tier = await fetchAccountTier(acc.access);
+      if (tier) {
+        acc.tier = tier.id;
+        acc.paidTier = tier.paid;
+      }
+      if (catalogue.ok) {
+        acc.modelCount = catalogue.models.length;
+        acc.usableModelCount = catalogue.usable ?? catalogue.models.filter((m) => !m.disabled).length;
+      }
       acc.lastQuota = {
         percent: worst === null ? null : worst.percent,
         bottleneck: worst === null ? null : worst.name,
@@ -900,6 +951,10 @@ export async function probeQuota(idOrEmail) {
         bottleneck: acc.lastQuota.bottleneck,
         resetTime,
         groups: acc.lastQuota.groups,
+        tier: acc.tier ?? null,
+        paidTier: acc.paidTier ?? null,
+        modelCount: acc.modelCount ?? null,
+        usableModelCount: acc.usableModelCount ?? null,
         models: rows.sort((a, b) => (a.percent ?? 101) - (b.percent ?? 101)),
       });
     } catch (err) {

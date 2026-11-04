@@ -18,7 +18,9 @@ import {
   rememberHandshake,
   takeHandshake,
   getActiveValidAccount,
+  loadPool,
   fetchModelCatalogue,
+  fetchAccountTier,
   getFetch,
   getSanitizedPoolView,
   isConfigured,
@@ -371,18 +373,37 @@ export function registerSettingsRoutes(ctx) {
         path: MODELS_PATH,
         methods: ['GET', 'POST'],
         requestBody: 'buffered',
-        fetch: async () => {
+        fetch: async request => {
           try {
-            const account = await getActiveValidAccount()
-            if (!account) {
+            const pool = loadPool()
+            if (!pool.accounts.length) {
               return Response.json({ ok: false, error: 'pool empty', models: [] }, { status: 404 })
             }
-            const catalogue = await fetchModelCatalogue(account.access, account.projectId)
+            let scope
+            try {
+              const query = new URL(request.url, 'http://x').searchParams
+              scope = query.get('id') ?? query.get('account') ?? undefined
+            } catch {
+              scope = undefined
+            }
+            const account = scope
+              ? pool.accounts.find(a => a.id === scope || a.email === scope) ?? null
+              : await getActiveValidAccount()
+            if (!account) {
+              return Response.json({ ok: false, error: 'account not found', models: [] }, { status: 404 })
+            }
+            const [catalogue, tier] = await Promise.all([
+              fetchModelCatalogue(account.access, account.projectId),
+              fetchAccountTier(account.access),
+            ])
             return Response.json(
               {
                 ok: catalogue.ok,
                 email: account.email,
+                tier,
                 count: catalogue.models.length,
+                usable: catalogue.usable ?? 0,
+                disabled: catalogue.disabled ?? 0,
                 models: catalogue.models,
                 ...(catalogue.reason ? { reason: catalogue.reason } : {}),
               },

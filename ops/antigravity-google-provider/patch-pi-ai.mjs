@@ -297,26 +297,52 @@ const ANTIGRAVITY_SYSTEM_INSTRUCTION =
     "**Absolute paths only**" +
     "**Proactiveness**";
 
+const DAILY = "https://daily-cloudcode-pa.sandbox.googleapis.com";
+const DAILY_ALT = "https://daily-cloudcode-pa.googleapis.com";
+const PROD = "https://cloudcode-pa.googleapis.com";
+
+// Every model id this provider exposes, mapped to the upstream ids to try in
+// order. Upstream ids differ per account tier (a paid account has
+// gemini-4-argon-high, a free-tier account only has gemini-4-argon-disabled
+// plus the older gemini-3.8-flash-* set), so each row lists fallbacks.
+const ANTIGRAVITY_MODEL_MAP = {
+    "gemini-4-argon": [DAILY, DAILY_ALT, PROD].flatMap((base) => [
+        [base, "gemini-4-argon-high"],
+        [base, "gemini-4-argon-medium"],
+        [base, "gemini-4-argon-low"],
+        [base, "gemini-4-argon-disabled"], // free tier: present but flagged
+        [base, "gemini-3.8-flash-tiered"],
+    ]),
+    "gemini-3.8-flash": [DAILY, DAILY_ALT, PROD].flatMap((base) => [
+        [base, "gemini-3.8-flash-tiered"],
+        [base, "gemini-3.8-flash-high"],
+        [base, "gemini-3.8-flash-medium"],
+        [base, "gemini-3.8-flash-low"],
+        [base, "gemini-3-flash"],
+        [base, "gemini-2.5-flash"],
+    ]),
+    "claude-sonnet-5-5": [DAILY, DAILY_ALT, PROD].flatMap((base) => [
+        [base, "claude-sonnet-5-5-high"],
+        [base, "claude-sonnet-5-5-medium"],
+        [base, "claude-sonnet-5-5-low"],
+        // free tier serves the older Sonnet instead
+        [base, "claude-sonnet-4-6"],
+    ]),
+    "claude-opus-5-5": [DAILY, DAILY_ALT, PROD].flatMap((base) => [
+        [base, "claude-opus-5-5-high"],
+        [base, "claude-opus-5-5-medium"],
+        [base, "claude-opus-5-5-low"],
+        [base, "claude-opus-4-6-thinking"],
+    ]),
+};
+
 function getAntigravityCandidates(modelId) {
-    if (modelId === "gemini-4-argon") {
-        return [
-            ["https://daily-cloudcode-pa.sandbox.googleapis.com", "gemini-3.8-flash-tiered"],
-            ["https://daily-cloudcode-pa.sandbox.googleapis.com", "gemini-2.5-pro"],
-            ["https://daily-cloudcode-pa.sandbox.googleapis.com", "gemini-3-flash"],
-            ["https://cloudcode-pa.googleapis.com", "gemini-2.5-pro"],
-        ];
-    }
-    if (modelId === "gemini-3.8-flash") {
-        return [
-            ["https://daily-cloudcode-pa.sandbox.googleapis.com", "gemini-3.8-flash-tiered"],
-            ["https://daily-cloudcode-pa.sandbox.googleapis.com", "gemini-3-flash"],
-            ["https://daily-cloudcode-pa.sandbox.googleapis.com", "gemini-2.5-flash"],
-            ["https://cloudcode-pa.googleapis.com", "gemini-2.5-flash"],
-        ];
-    }
+    const mapped = ANTIGRAVITY_MODEL_MAP[modelId];
+    if (mapped) return mapped;
     return [
-        ["https://daily-cloudcode-pa.sandbox.googleapis.com", modelId],
-        ["https://cloudcode-pa.googleapis.com", modelId],
+        [DAILY, modelId],
+        [DAILY_ALT, modelId],
+        [PROD, modelId],
     ];
 }
 
@@ -486,7 +512,7 @@ const anchorCatalog = `function catalogProviders() {
 \treturn providerIndex;
 }`;
 
-const replacementCatalog = `const ALLOWED_GOOGLE_MODELS = new Set(["gemini-4-argon", "gemini-3.8-flash"]);
+const replacementCatalog = `const ALLOWED_GOOGLE_MODELS = new Set(["gemini-4-argon", "gemini-3.8-flash", "claude-sonnet-5-5", "claude-opus-5-5"]);
 function catalogProviders() {
 \tproviderIndex ??= new Map(builtinProviders().filter((provider) => provider.id === "google" && servesChat(provider)).map((provider) => [provider.id, provider]));
 \treturn providerIndex;
@@ -557,4 +583,4 @@ if (fs.existsSync(frontendHtmlFile)) {
   }
 }
 
-console.log('[Antigravity Patch] Applied Google Antigravity OAuth + Cloud Code Assist SSE + strict 2-model catalog (gemini-4-argon & gemini-3.8-flash)');
+console.log('[Antigravity Patch] Applied Google Antigravity OAuth + Cloud Code Assist SSE + 4-model catalog (gemini-4-argon, gemini-3.8-flash, claude-sonnet-5-5, claude-opus-5-5)');
